@@ -1,0 +1,10 @@
+{
+  "local_temp_download_folder": "D:\\Music\\DownOnSpot",
+  "local_library_folder": "D:\\Music",
+  "extensions_to_scan": [".mp3"],
+  "script_owner": "HammadXP",
+  "region": "PK",
+  "playlists": {
+    "shorts_music": "https://open.spotify.com/playlist/5rCPO6bFNZfwnZSC857LeS?si=823bb76b528a4e26"
+  }
+}
