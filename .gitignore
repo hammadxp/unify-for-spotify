@@ -1,2 +1,4 @@
 /credentials_cache
 .cache
+/.env
+/config.json

@@ -1,0 +1,11 @@
+{
+  "download_client": "Zotify",
+  "download_client_download_folder": "D:\\Music\\Zotify",
+  "library_folder": "D:\\Music",
+  "music_files_extension": [".mp3"],
+  "script_owner": "HammadXP",
+  "region": "US",
+  "playlists": {
+    "for_zotify": "https://open.spotify.com/playlist/6ejv8ixYXaAkTvd2W5Ojh9?si=bc9787fa1a3b4f42"
+  }
+}
