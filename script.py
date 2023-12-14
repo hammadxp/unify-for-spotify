@@ -13,15 +13,58 @@ from datetime import datetime, timedelta
 import ffmpy
 import music_tag
 from tqdm import tqdm
-from spinner import Spinner
-from send2trash import send2trash
 from colorama import init, Fore, Back, Style
+from send2trash import send2trash
+from spinner import Spinner
 
 import spotipy
 from spotipy.oauth2 import SpotifyClientCredentials
 from librespot.core import Session
 from librespot.metadata import TrackId
 from librespot.audio.decoders import AudioQuality, VorbisOnlyAudioQuality
+
+
+def main():
+    app = Container()
+
+    app.create_spotipy_session()
+    app.login_to_librespot()
+
+    app.load_config()
+    init()  # For colorama
+
+    for _, playlist_url in app.config['playlists'].items():
+        app.init_state()
+
+        app.playlist_url = playlist_url
+        app.get_playlist_id()
+        app.get_playlist_name()
+        app.create_local_playlist_folder()
+
+        app.update_window_title(f"Playlist: {app.playlist_name}")
+
+        app.get_spotify_tracks_raw()
+        app.get_local_tracks_raw()
+
+        app.spotify_tracks_remove_uploaded()
+        app.spotify_tracks_remove_unavailable()
+        app.spotify_tracks_remove_duplicate()
+        app.spotify_tracks_fix_save_as()
+
+        app.local_tracks_delete_unmatched()
+        app.local_tracks_delete_duplicate()
+        app.local_tracks_fix_filename()
+
+        app.get_spotify_tracks_to_download()
+        app.get_spotify_tracks_to_download_incomplete()
+
+        app.download_handler()
+
+    app.update_window_title('Finished.')
+    input('\nFinished.')
+
+if __name__ == "__main__":
+    main()
 
 
 class Container:
@@ -737,47 +780,3 @@ class Container:
             os.system("clear")
 
     ######################################################
-
-
-def main():
-    app = Container()
-
-    app.create_spotipy_session()
-    app.login_to_librespot()
-
-    app.load_config()
-    init()  # For colorama
-
-    for _, playlist_url in app.config['playlists'].items():
-        app.init_state()
-
-        app.playlist_url = playlist_url
-        app.get_playlist_id()
-        app.get_playlist_name()
-        app.create_local_playlist_folder()
-
-        app.update_window_title(f"Playlist: {app.playlist_name}")
-
-        app.get_spotify_tracks_raw()
-        app.get_local_tracks_raw()
-
-        app.spotify_tracks_remove_uploaded()
-        app.spotify_tracks_remove_unavailable()
-        app.spotify_tracks_remove_duplicate()
-        app.spotify_tracks_fix_save_as()
-
-        app.local_tracks_delete_unmatched()
-        app.local_tracks_delete_duplicate()
-        app.local_tracks_fix_filename()
-
-        app.get_spotify_tracks_to_download()
-        app.get_spotify_tracks_to_download_incomplete()
-
-        app.download_handler()
-
-    app.update_window_title('Finished.')
-    input('\nFinished.')
-
-
-if __name__ == "__main__":
-    main()
