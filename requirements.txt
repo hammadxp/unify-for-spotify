@@ -1,0 +1,9 @@
+spotipy
+ffmpy
+music_tag
+tqdm
+colorama
+send2trash
+
+# Librespot-python from GitHub
+librespot @ git+https://github.com/kokarare1212/librespot-python.git

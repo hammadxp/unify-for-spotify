@@ -1,5 +1,5 @@
 __pycache__
-/credentials_cache
+credentials_cache
 .cache
 /.env
 /config.json
