@@ -6,7 +6,7 @@ def main():
     app.create_spotipy_session()
     app.login_to_librespot()
     app.load_config()
-
+    
     for _, playlist_url in app.config['playlists'].items():
         app.init_state()
 
@@ -16,6 +16,7 @@ def main():
         app.create_local_playlist_folder()
 
         app.update_window_title(f"Playlist: {app.playlist_name}")
+        app.init_progress_bars()
 
         app.get_spotify_tracks_raw()
         app.get_local_tracks_raw()
