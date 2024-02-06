@@ -6,6 +6,7 @@ import time
 import ctypes
 import platform
 import requests
+import shutil
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -723,12 +724,12 @@ class Unify:
                 if not os.path.exists(self.local_playlist_folder):
                     os.makedirs(self.local_playlist_folder)
 
-                os.replace(file_path_old, file_path_new)
+                shutil.move(file_path_old, file_path_new)
 
                 self.metadata_progress.stop_task(self.metadata_progress_id)
             
             except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not move downloaded audio file to playlist folder. ({e})", visible=True)
+                self.status_bar.update(self.status_bar_id, description=f"ERROR: ({e})", visible=True)
 
     ######################################################
 
