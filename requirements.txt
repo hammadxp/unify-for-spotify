@@ -1,9 +1,26 @@
-spotipy
-ffmpy
-music_tag
-tqdm
-colorama
-send2trash
-
-# Librespot-python from GitHub
-librespot @ git+https://github.com/kokarare1212/librespot-python.git
+async-timeout==4.0.3
+certifi==2024.2.2
+charset-normalizer==3.3.2
+defusedxml==0.7.1
+ffmpy==0.3.1
+idna==3.6
+ifaddr==0.2.0
+librespot==0.0.9
+markdown-it-py==3.0.0
+mdurl==0.1.2
+music-tag==0.4.3
+mutagen==1.47.0
+protobuf==3.20.1
+pycryptodomex==3.17
+Pygments==2.17.2
+PyOgg==0.6.14a1
+python-dotenv==1.0.1
+redis==5.0.1
+requests==2.30.0
+rich==13.7.0
+Send2Trash==1.8.2
+six==1.16.0
+spotipy==2.23.0
+urllib3==2.2.0
+websocket-client==1.5.1
+zeroconf==0.62.0

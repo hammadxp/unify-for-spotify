@@ -1,6 +1,8 @@
 __pycache__
-credentials_cache
+.venv
 .cache
-/.env
-/config.json
+credentials_cache
+
+.env
+config.json
 credentials.json
