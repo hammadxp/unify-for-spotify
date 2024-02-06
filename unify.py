@@ -89,13 +89,14 @@ class Unify:
 
             client_credentials_manager = SpotifyClientCredentials(
                 client_id=client_id, client_secret=client_secret)
-            
+
             self.spotipy_session = spotipy.Spotify(
                 client_credentials_manager=client_credentials_manager)
-        
+
         except Exception as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not create SpotiPy session. ({e})", visible=True)
-        
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not create SpotiPy session. ({e})", visible=True)
+
     def login_to_librespot(self):
         # check if the user has already logged in to librespot with their Spotify credentials, if so, retrieve session details from that file
         if os.path.isfile("credentials.json"):
@@ -105,13 +106,11 @@ class Unify:
             except RuntimeError:
                 pass
 
-        # if user hasn't logged in before, ask for their Spotify username and password
+        # if user hasn't logged in to librespot-python before, sign them in
         while True:
-            spotify_username = input("Your Spotify username: ")
-            spotify_password = input("Your Spotify password: ")
-            
             try:
-                self.librespot_session = Session.Builder().user_pass(spotify_username, spotify_password).create()
+                self.librespot_session = Session.Builder().user_pass(
+                    os.getenv("SPOTIFY_USERNAME", ""), os.getenv("SPOTIFY_PASSWORD", "")).create()
                 return
             except RuntimeError:
                 pass
@@ -122,10 +121,11 @@ class Unify:
                 self.config = json.load(config_file)
 
         except FileNotFoundError:
-            self.status_bar.update(self.status_bar_id, description="ERROR: Config file not found. Make sure cmd is opened in the Unify script's folder and config.json exists in that folder.", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description="ERROR: Config file not found. Make sure cmd is opened in the Unify script's folder and config.json exists in that folder.", visible=True)
 
     def init_progress_bars(self):
-        ### CREATE PROGRESS BARS
+        # CREATE PROGRESS BARS
         self.status_bar = Progress(TextColumn("{task.description}"))
 
         self.song_progress = Progress(TextColumn("{task.description}"))
@@ -139,7 +139,7 @@ class Unify:
             TextColumn("|"),
             TimeRemainingColumn(),
         )
-        
+
         self.metadata_progress = Progress(
             TextColumn("[bold]{task.description}"),
             SpinnerColumn()
@@ -152,19 +152,21 @@ class Unify:
 
         self.playlist_completed = Progress(TextColumn("{task.description}"))
 
-        ### INITIALIZE PLAYLIST PROGRESS
+        # INITIALIZE PLAYLIST PROGRESS
         self.playlist_progress_id = self.playlist_progress.add_task("")
-        self.playlist_completed_id = self.playlist_completed.add_task("", visible=False)
+        self.playlist_completed_id = self.playlist_completed.add_task(
+            "", visible=False)
 
-        ### PROGRESS PANEL
+        # PROGRESS PANEL
         self.progress_panel = Panel(
             Group(
                 self.status_bar,
-                Panel(Group(self.song_progress, self.download_progress, self.metadata_progress)),
+                Panel(Group(self.song_progress,
+                      self.download_progress, self.metadata_progress)),
                 Panel(Group(self.playlist_progress, self.playlist_completed))
             )
         )
-        
+
         self.progress_panel_alt = Panel(self.playlist_completed)
 
     ######################################################
@@ -175,17 +177,19 @@ class Unify:
                 self.playlist_id = match.groups()[0]
             else:
                 raise ValueError()
-        
+
         except ValueError as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Bad playlist URL format. ({self.playlist_url})", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Bad playlist URL format. ({self.playlist_url})", visible=True)
 
     def get_playlist_name(self):
         try:
             self.playlist_name = self.spotipy_session.user_playlist(
-            user=None, playlist_id=self.playlist_id, fields="name")['name']
+                user=None, playlist_id=self.playlist_id, fields="name")['name']
 
         except Exception as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not retrieve playlist name. ({e})", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not retrieve playlist name. ({e})", visible=True)
 
     def create_local_playlist_folder(self):
         try:
@@ -196,126 +200,133 @@ class Unify:
                 os.makedirs(self.local_playlist_folder)
 
         except Exception as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not create local playlist folder. ({e})", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not create local playlist folder. ({e})", visible=True)
 
     ######################################################
 
     def get_spotify_tracks_raw(self):
-            try:
-                response = self.spotipy_session.playlist_tracks(
-                    self.playlist_id, market=self.config['region'])
-                tracks_fetched = response['items']
+        try:
+            response = self.spotipy_session.playlist_tracks(
+                self.playlist_id, market=self.config['region'])
+            tracks_fetched = response['items']
 
-                while response['next']:
-                    response = self.spotipy_session.next(response)
-                    tracks_fetched.extend(response['items'])
+            while response['next']:
+                response = self.spotipy_session.next(response)
+                tracks_fetched.extend(response['items'])
 
-                for track in tracks_fetched:
-                    if track['track']['duration_ms'] == 0 or track['track']['is_local']:
-                        continue
+            for track in tracks_fetched:
+                if track['track']['duration_ms'] == 0 or track['track']['is_local']:
+                    continue
 
-                    title = track['track']['name']
-                    artist = ", ".join([artist['name'] for artist in track['track']['artists']])
-                    album = track['track']['album']['name']
-                    albumartist = track['track']['album']['artists'][0]['name']
-                    total_discs = 1
-                    disc_number = track['track']['disc_number']
-                    total_tracks = track['track']['album']['total_tracks']
-                    track_number = track['track']['track_number']
-                    release_date = track['track']['album']['release_date']
-                    added_at = track['added_at']
-                    duration = track['track']['duration_ms']
-                    track_url = track['track']['external_urls'].get('spotify', False)
-                    track_uri = track['track']['uri']
-                    track_id = track['track']['id']
-                    artist_ids = [artist['id'] for artist in track['track']['artists']]
-                    is_local = track['track']['is_local']
-                    is_playable = track['track'].get('is_playable', True)
-                    save_as = ''
-                    
-                    # 'save_as' will be updated in 'spotify_tracks_fix_save_as' function
-                    # 'is_playable' value is 'false' for unavailable tracks and 'None' for uploaded tracks
+                title = track['track']['name']
+                artist = ", ".join([artist['name']
+                                   for artist in track['track']['artists']])
+                album = track['track']['album']['name']
+                albumartist = track['track']['album']['artists'][0]['name']
+                total_discs = 1
+                disc_number = track['track']['disc_number']
+                total_tracks = track['track']['album']['total_tracks']
+                track_number = track['track']['track_number']
+                release_date = track['track']['album']['release_date']
+                added_at = track['added_at']
+                duration = track['track']['duration_ms']
+                track_url = track['track']['external_urls'].get(
+                    'spotify', False)
+                track_uri = track['track']['uri']
+                track_id = track['track']['id']
+                artist_ids = [artist['id']
+                              for artist in track['track']['artists']]
+                is_local = track['track']['is_local']
+                is_playable = track['track'].get('is_playable', True)
+                save_as = ''
 
-                    image = track['track']['album']['images'][0]
-                    for i in track['track']['album']['images']:
-                        if i['width'] > image['width']:
-                            image = i
-                    image_url = image['url']
+                # 'save_as' will be updated in 'spotify_tracks_fix_save_as' function
+                # 'is_playable' value is 'false' for unavailable tracks and 'None' for uploaded tracks
 
-                    spotify_track = {
-                        'title': title,
-                        'artist': artist,
-                        'album': album,
-                        'albumartist': albumartist,
-                        'total_discs': total_discs,
-                        'disc_number': disc_number,
-                        'total_tracks': total_tracks,
-                        'track_number': track_number,
-                        'release_date': release_date,
-                        'added_at': added_at,
-                        'duration': duration,
-                        'image_url': image_url,
-                        'track_url': track_url,
-                        'track_uri': track_uri,
-                        'track_id': track_id,
-                        'artist_ids': artist_ids,
-                        'is_local': is_local,
-                        'is_playable': is_playable,
-                        'save_as': save_as
-                    }
+                image = track['track']['album']['images'][0]
+                for i in track['track']['album']['images']:
+                    if i['width'] > image['width']:
+                        image = i
+                image_url = image['url']
 
-                    self.spotify_tracks_raw.append(spotify_track)
-                    self.spotify_track_ids.add(spotify_track['track_id'])
+                spotify_track = {
+                    'title': title,
+                    'artist': artist,
+                    'album': album,
+                    'albumartist': albumartist,
+                    'total_discs': total_discs,
+                    'disc_number': disc_number,
+                    'total_tracks': total_tracks,
+                    'track_number': track_number,
+                    'release_date': release_date,
+                    'added_at': added_at,
+                    'duration': duration,
+                    'image_url': image_url,
+                    'track_url': track_url,
+                    'track_uri': track_uri,
+                    'track_id': track_id,
+                    'artist_ids': artist_ids,
+                    'is_local': is_local,
+                    'is_playable': is_playable,
+                    'save_as': save_as
+                }
 
-                # sort by title, but if titles are same then sort by artist
-                self.spotify_tracks_raw.sort(key=lambda a: (
-                    a['title'].lower(), a['artist'].lower()))
-            
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not get Spotify tracks. ({e})", visible=True)
+                self.spotify_tracks_raw.append(spotify_track)
+                self.spotify_track_ids.add(spotify_track['track_id'])
+
+            # sort by title, but if titles are same then sort by artist
+            self.spotify_tracks_raw.sort(key=lambda a: (
+                a['title'].lower(), a['artist'].lower()))
+
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not get Spotify tracks. ({e})", visible=True)
 
     def get_local_tracks_raw(self):
-            try:
-                for folder, subfolders, files in os.walk(self.local_playlist_folder):
-                    for file in files:
-                        file_path = os.path.join(folder, file)
-                        file_dir = folder
-                        file_name = os.path.splitext(file)[0]
-                        file_extension = os.path.splitext(file)[1][1:]
+        try:
+            for folder, subfolders, files in os.walk(self.local_playlist_folder):
+                for file in files:
+                    file_path = os.path.join(folder, file)
+                    file_dir = folder
+                    file_name = os.path.splitext(file)[0]
+                    file_extension = os.path.splitext(file)[1][1:]
 
-                        if file_extension == self.config['download_format']:
-                            music_file = music_tag.load_file(file_path)
+                    if file_extension == self.config['download_format']:
+                        music_file = music_tag.load_file(file_path)
 
-                            title = str(music_file['title'])
-                            artist = str(music_file['artist'])
-                            album = str(music_file['album'])
-                            track_uri = str(music_file['comment'])
-                            track_id = str(music_file['comment']).split(":")[-1]
-                            # track_id = str(music_file['comment']).split(":")[-1] if len(str(music_file['comment']).split(":")) > 1 else ""
-                            duration = round(float(str(music_file['#length'])) * 1000)
+                        title = str(music_file['title'])
+                        artist = str(music_file['artist'])
+                        album = str(music_file['album'])
+                        track_uri = str(music_file['comment'])
+                        track_id = str(music_file['comment']).split(":")[-1]
+                        # track_id = str(music_file['comment']).split(":")[-1] if len(str(music_file['comment']).split(":")) > 1 else ""
+                        duration = round(
+                            float(str(music_file['#length'])) * 1000)
 
-                            local_track = {
-                                "title": title,
-                                "artist": artist,
-                                "album": album,
-                                "track_uri": track_uri,
-                                "track_id": track_id,
-                                "duration": duration,
-                                "file_path": file_path,
-                                "file_dir": file_dir,
-                                "file_name": file_name,
-                                "file_extension": file_extension
-                            }
+                        local_track = {
+                            "title": title,
+                            "artist": artist,
+                            "album": album,
+                            "track_uri": track_uri,
+                            "track_id": track_id,
+                            "duration": duration,
+                            "file_path": file_path,
+                            "file_dir": file_dir,
+                            "file_name": file_name,
+                            "file_extension": file_extension
+                        }
 
-                            self.local_tracks_raw.append(local_track)
-                            self.local_track_ids.add(local_track['track_id'])
+                        self.local_tracks_raw.append(local_track)
+                        self.local_track_ids.add(local_track['track_id'])
 
-                # sort by title, but if titles are same then sort by artist
-                self.local_tracks_raw.sort(key=lambda a: (
-                    a['title'].lower(), a['artist'].lower()))
-            
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not get local tracks. ({e})", visible=True)
+            # sort by title, but if titles are same then sort by artist
+            self.local_tracks_raw.sort(key=lambda a: (
+                a['title'].lower(), a['artist'].lower()))
+
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not get local tracks. ({e})", visible=True)
 
     ######################################################
 
@@ -462,15 +473,20 @@ class Unify:
                 for spotify_track in self.spotify_tracks_to_download:
                     self.currently_downloading_track = spotify_track
 
-                    ### INITIALIZE SONG PROGRESS
-                    self.status_bar_id = self.status_bar.add_task("", visible=False)
-                    self.song_progress_id = self.song_progress.add_task(f"{spotify_track['title']} is downloading")
-                    self.download_progress_id = self.download_progress.add_task("Initializing")
-                    self.metadata_progress_id = self.metadata_progress.add_task("", visible=False)
+                    # INITIALIZE SONG PROGRESS
+                    self.status_bar_id = self.status_bar.add_task(
+                        "", visible=False)
+                    self.song_progress_id = self.song_progress.add_task(
+                        f"{spotify_track['title']} is downloading")
+                    self.download_progress_id = self.download_progress.add_task(
+                        "Initializing")
+                    self.metadata_progress_id = self.metadata_progress.add_task(
+                        "", visible=False)
 
-                    self.playlist_progress.update(self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
+                    self.playlist_progress.update(
+                        self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
 
-                    ### RUN TASKS
+                    # RUN TASKS
                     self.downloader()
                     self.change_modification_date_to_added_date()
                     self.move_downloaded_track()
@@ -478,26 +494,33 @@ class Unify:
                     self.newly_downloaded_track_lyrics = ''
                     self.completed_index += 1
 
-                    ### UPDATE PROGRESS AFTER SONG DOWNLOAD
-                    self.metadata_progress.update(self.metadata_progress_id, visible=False)
+                    # UPDATE PROGRESS AFTER SONG DOWNLOAD
+                    self.metadata_progress.update(
+                        self.metadata_progress_id, visible=False)
 
                     self.song_progress.stop_task(self.song_progress_id)
-                    self.song_progress.update(self.song_progress_id, description=f"[bold green]{spotify_track['title']} downloaded")
+                    self.song_progress.update(
+                        self.song_progress_id, description=f"[bold green]{spotify_track['title']} downloaded")
 
-                    self.playlist_progress.update(self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
-                
+                    self.playlist_progress.update(
+                        self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
+
                 # PLAYLIST COMPLETED MESSAGE
-                self.playlist_progress.update(self.playlist_progress_id, visible=False)
-                self.playlist_completed.update(self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
-        
+                self.playlist_progress.update(
+                    self.playlist_progress_id, visible=False)
+                self.playlist_completed.update(
+                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
+
         else:
             with Live(self.progress_panel_alt):
-                self.playlist_completed.update(self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
+                self.playlist_completed.update(
+                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
 
     def downloader(self):
         # localize variables for repetitive usage
         spotify_track = self.currently_downloading_track
-        self.temp_download_file = os.path.join(self.config['temp_download_folder'], f"temp.{self.config['download_format']}")
+        self.temp_download_file = os.path.join(
+            self.config['temp_download_folder'], f"temp.{self.config['download_format']}")
 
         # create temp folder
         if not os.path.exists(self.config['temp_download_folder']):
@@ -526,8 +549,9 @@ class Unify:
 
             track_signature = TrackId.from_base62(spotify_track['track_id'])
             stream = self.librespot_session.content_feeder().load(track_signature,
-                                                VorbisOnlyAudioQuality(download_quality),
-                                                False, None)
+                                                                  VorbisOnlyAudioQuality(
+                                                                      download_quality),
+                                                                  False, None)
 
             stream_size = stream.input_stream.size
             downloaded = 0
@@ -535,7 +559,8 @@ class Unify:
             with open(self.temp_download_file, 'wb') as file:
                 b = 0
                 while b < 5:
-                    chunk = stream.input_stream.stream().read(self.config['chunk_size'])
+                    chunk = stream.input_stream.stream().read(
+                        self.config['chunk_size'])
                     file.write(chunk)
 
                     self.download_progress.update(
@@ -545,20 +570,24 @@ class Unify:
                         advance=len(chunk)
                     )
                     self.download_progress.stop_task(self.download_progress_id)
-                    
+
                     downloaded += len(chunk)
                     b += 1 if chunk == b'' else 0
-            
-            self.download_progress.update(self.download_progress_id, visible=False)
+
+            self.download_progress.update(
+                self.download_progress_id, visible=False)
 
         except Exception as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not download audio stream. ({e})", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not download audio stream. ({e})", visible=True)
 
     def transcode_audio(self):
         try:
-            self.metadata_progress.update(self.metadata_progress_id, description="Transcoding audio", visible=True)
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Transcoding audio", visible=True)
 
-            self.temp_transcode_file = os.path.join(self.config['temp_download_folder'], f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
+            self.temp_transcode_file = os.path.join(
+                self.config['temp_download_folder'], f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
 
             codecs = {
                 'aac': 'aac',
@@ -598,138 +627,157 @@ class Unify:
 
                 if Path(self.temp_download_file).exists():
                     Path(self.temp_download_file).unlink()
-                
+
                 self.metadata_progress.stop_task(self.metadata_progress_id)
 
             except ffmpy.FFExecutableNotFoundError:
-                self.status_bar.update(self.status_bar_id, description=f'Skipping {file_codec.upper()} conversion (FFMPEG not found)', visible=True)
-        
+                self.status_bar.update(
+                    self.status_bar_id, description=f'Skipping {file_codec.upper()} conversion (FFMPEG not found)', visible=True)
+
         except Exception as e:
-            self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not transcode audio stream. ({e})", visible=True)
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not transcode audio stream. ({e})", visible=True)
 
     def fetch_genres(self):
-            try:
-                self.metadata_progress.update(self.metadata_progress_id, description="Fetching genres")
+        try:
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Fetching genres")
 
-                response = self.spotipy_session.artists(artists=self.currently_downloading_track['artist_ids'])
-                artists_fetched = response['artists']
+            response = self.spotipy_session.artists(
+                artists=self.currently_downloading_track['artist_ids'])
+            artists_fetched = response['artists']
 
-                artists_genres = [artist['genres'] for artist in artists_fetched]
+            artists_genres = [artist['genres'] for artist in artists_fetched]
 
-                genres = ''
-                for artist_genre in artists_genres:
-                    for genre in artist_genre:
-                        genres += genre.title() + ', '
-                
-                self.newly_downloaded_track_genres = genres.rstrip(', ')
+            genres = ''
+            for artist_genre in artists_genres:
+                for genre in artist_genre:
+                    genres += genre.title() + ', '
 
-                self.metadata_progress.stop_task(self.metadata_progress_id)
-            
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"MINOR: Could not fetch genres for '{self.currently_downloading_track['title']}'", visible=True)
+            self.newly_downloaded_track_genres = genres.rstrip(', ')
+
+            self.metadata_progress.stop_task(self.metadata_progress_id)
+
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"MINOR: Could not fetch genres for '{self.currently_downloading_track['title']}'", visible=True)
 
     def fetch_lyrics(self):
-            try:
-                self.metadata_progress.update(self.metadata_progress_id, description="Fetching lyrics")
+        try:
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Fetching lyrics")
 
-                _, data = self.fetch_url(url = f"https://spclient.wg.spotify.com/color-lyrics/v2/track/{self.currently_downloading_track['track_id']}")
+            _, data = self.fetch_url(
+                url=f"https://spclient.wg.spotify.com/color-lyrics/v2/track/{self.currently_downloading_track['track_id']}")
 
-                if data:
-                    try:
-                        lyrics_raw = data['lyrics']['lines']
+            if data:
+                try:
+                    lyrics_raw = data['lyrics']['lines']
 
-                    except KeyError:
-                        raise ValueError("Lyrics not available")
+                except KeyError:
+                    raise ValueError("Lyrics not available")
 
-                    lyrics = []
-                    if(data['lyrics']['syncType'] == "UNSYNCED"):
-                        for line in lyrics_raw:
-                            lyrics.append(line['words'] + '\n')
+                lyrics = []
+                if (data['lyrics']['syncType'] == "UNSYNCED"):
+                    for line in lyrics_raw:
+                        lyrics.append(line['words'] + '\n')
 
-                    elif(data['lyrics']['syncType'] == "LINE_SYNCED"):
-                        for line in lyrics_raw:
-                            timestamp = int(line['startTimeMs'])
-                            ts_minutes = str(math.floor(timestamp / 60000)).zfill(2)
-                            ts_seconds = str(math.floor((timestamp % 60000) / 1000)).zfill(2)
-                            ts_millis = str(math.floor(timestamp % 1000))[:2].zfill(2)
-                            lyrics.append(f'[{ts_minutes}:{ts_seconds}.{ts_millis}]' + line['words'] + '\n')
-                        
-                    self.newly_downloaded_track_lyrics = ''.join(lyrics)
+                elif (data['lyrics']['syncType'] == "LINE_SYNCED"):
+                    for line in lyrics_raw:
+                        timestamp = int(line['startTimeMs'])
+                        ts_minutes = str(math.floor(
+                            timestamp / 60000)).zfill(2)
+                        ts_seconds = str(math.floor(
+                            (timestamp % 60000) / 1000)).zfill(2)
+                        ts_millis = str(math.floor(timestamp % 1000))[
+                            :2].zfill(2)
+                        lyrics.append(
+                            f'[{ts_minutes}:{ts_seconds}.{ts_millis}]' + line['words'] + '\n')
 
-                self.metadata_progress.stop_task(self.metadata_progress_id)
+                self.newly_downloaded_track_lyrics = ''.join(lyrics)
 
-            except (Exception, ValueError) as e:
-                self.status_bar.update(self.status_bar_id, description=f"MINOR: Could not fetch lyrics for '{self.currently_downloading_track['title']}'", visible=True)
+            self.metadata_progress.stop_task(self.metadata_progress_id)
+
+        except (Exception, ValueError) as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"MINOR: Could not fetch lyrics for '{self.currently_downloading_track['title']}'", visible=True)
 
     def add_metadata(self):
-            try:
-                self.metadata_progress.update(self.metadata_progress_id, description="Adding metadata")
+        try:
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Adding metadata")
 
-                spotify_track = self.currently_downloading_track
+            spotify_track = self.currently_downloading_track
 
-                # add tags
-                music_file = music_tag.load_file(self.temp_transcode_file)
-                music_file['tracktitle'] = spotify_track['title']
-                music_file['artist'] = spotify_track['artist']
-                music_file['album'] = spotify_track['album']
-                music_file['albumartist'] = spotify_track['albumartist']
-                music_file['totaldiscs'] = spotify_track['total_discs']
-                music_file['discnumber'] = spotify_track['disc_number']
-                music_file['totaltracks'] = spotify_track['total_tracks']
-                music_file['tracknumber'] = spotify_track['track_number']
-                music_file['comment'] = spotify_track['track_uri']
-                music_file['composer'] = spotify_track['release_date']
-                music_file['year'] = spotify_track['release_date'].split('-')[0]
-                music_file['genre'] = self.newly_downloaded_track_genres
-                music_file['lyrics'] = self.newly_downloaded_track_lyrics
-                music_file.save()
+            # add tags
+            music_file = music_tag.load_file(self.temp_transcode_file)
+            music_file['tracktitle'] = spotify_track['title']
+            music_file['artist'] = spotify_track['artist']
+            music_file['album'] = spotify_track['album']
+            music_file['albumartist'] = spotify_track['albumartist']
+            music_file['totaldiscs'] = spotify_track['total_discs']
+            music_file['discnumber'] = spotify_track['disc_number']
+            music_file['totaltracks'] = spotify_track['total_tracks']
+            music_file['tracknumber'] = spotify_track['track_number']
+            music_file['comment'] = spotify_track['track_uri']
+            music_file['composer'] = spotify_track['release_date']
+            music_file['year'] = spotify_track['release_date'].split('-')[0]
+            music_file['genre'] = self.newly_downloaded_track_genres
+            music_file['lyrics'] = self.newly_downloaded_track_lyrics
+            music_file.save()
 
-                # add cover
-                cover = requests.get(spotify_track['image_url']).content
-                music_file = music_tag.load_file(self.temp_transcode_file)
-                music_file['artwork'] = cover
-                music_file.save()
+            # add cover
+            cover = requests.get(spotify_track['image_url']).content
+            music_file = music_tag.load_file(self.temp_transcode_file)
+            music_file['artwork'] = cover
+            music_file.save()
 
-                self.metadata_progress.stop_task(self.metadata_progress_id)
-            
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description="ERROR: Could not write metadata to audio file. Make sure ffmpeg is installed and added to your PATH.", visible=True)
+            self.metadata_progress.stop_task(self.metadata_progress_id)
+
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description="ERROR: Could not write metadata to audio file. Make sure ffmpeg is installed and added to your PATH.", visible=True)
 
     def change_modification_date_to_added_date(self):
-            try:
-                self.metadata_progress.update(self.metadata_progress_id, description="Updating modification date")
+        try:
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Updating modification date")
 
-                timestamp_raw = self.currently_downloading_track['added_at']
-                timestamp = datetime.strptime(timestamp_raw, "%Y-%m-%dT%H:%M:%SZ")
-                timestamp_adjusted = timestamp + timedelta(hours=5)
-                timestamp_epoch = timestamp_adjusted.timestamp()
-                mdate_P1 = timestamp_adjusted.strftime("%Y-%m-%d")
-                mdate_P2 = timestamp_adjusted.strftime("%Y-%m-%d %H:%M:%S")
+            timestamp_raw = self.currently_downloading_track['added_at']
+            timestamp = datetime.strptime(timestamp_raw, "%Y-%m-%dT%H:%M:%SZ")
+            timestamp_adjusted = timestamp + timedelta(hours=5)
+            timestamp_epoch = timestamp_adjusted.timestamp()
+            mdate_P1 = timestamp_adjusted.strftime("%Y-%m-%d")
+            mdate_P2 = timestamp_adjusted.strftime("%Y-%m-%d %H:%M:%S")
 
-                os.utime(self.temp_transcode_file, (timestamp_epoch, timestamp_epoch))
+            os.utime(self.temp_transcode_file,
+                     (timestamp_epoch, timestamp_epoch))
 
-                self.metadata_progress.stop_task(self.metadata_progress_id)
+            self.metadata_progress.stop_task(self.metadata_progress_id)
 
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not update modification date of audio file. ({e})", visible=True)
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: Could not update modification date of audio file. ({e})", visible=True)
 
     def move_downloaded_track(self):
-            try:
-                self.metadata_progress.update(self.metadata_progress_id, description="Moving file to playlist folder")
+        try:
+            self.metadata_progress.update(
+                self.metadata_progress_id, description="Moving file to playlist folder")
 
-                file_path_old = self.temp_transcode_file
-                file_path_new = os.path.join(
-                    self.local_playlist_folder, f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
+            file_path_old = self.temp_transcode_file
+            file_path_new = os.path.join(
+                self.local_playlist_folder, f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
 
-                if not os.path.exists(self.local_playlist_folder):
-                    os.makedirs(self.local_playlist_folder)
+            if not os.path.exists(self.local_playlist_folder):
+                os.makedirs(self.local_playlist_folder)
 
-                shutil.move(file_path_old, file_path_new)
+            shutil.move(file_path_old, file_path_new)
 
-                self.metadata_progress.stop_task(self.metadata_progress_id)
-            
-            except Exception as e:
-                self.status_bar.update(self.status_bar_id, description=f"ERROR: ({e})", visible=True)
+            self.metadata_progress.stop_task(self.metadata_progress_id)
+
+        except Exception as e:
+            self.status_bar.update(
+                self.status_bar_id, description=f"ERROR: ({e})", visible=True)
 
     ######################################################
 
@@ -749,16 +797,19 @@ class Unify:
             response_json = response.json()
 
         except json.decoder.JSONDecodeError:
-            response_json = {"error": {"status": "unknown", "message": "received an empty response"}}
+            response_json = {"error": {"status": "unknown",
+                                       "message": "received an empty response"}}
 
             if not response_json or 'error' in response_json:
                 if retry_count < (self.config['retry_attempts'] - 1):
-                    self.status_bar.update(self.status_bar_id, description=f"ERROR: Could not fetch the requested URL. (retry {retry_count + 1}) ({response_json['error']['status']}): {response_json['error']['message']}", visible=True)
+                    self.status_bar.update(
+                        self.status_bar_id, description=f"ERROR: Could not fetch the requested URL. (retry {retry_count + 1}) ({response_json['error']['status']}): {response_json['error']['message']}", visible=True)
                     time.sleep(5)
 
                     return self.invoke_url(url, retry_count + 1)
 
-                raise Exception(f"Reason: {response_json['error']['status']} | Error message: {response_json['error']['message']}")
+                raise Exception(
+                    f"Reason: {response_json['error']['status']} | Error message: {response_json['error']['message']}")
 
         return response_text, response_json
 
@@ -787,19 +838,19 @@ class Unify:
     def format_bytes(self, size_in_bytes):
         if size_in_bytes == 0:
             return "0b"
-    
+
         # Define the units and their corresponding labels
         units = ["b", "kb", "mb", "gb", "tb", "pb", "eb", "zb", "yb"]
-        
+
         # Determine the appropriate unit
         unit_index = 0
         while size_in_bytes >= 1024 and unit_index < len(units) - 1:
             size_in_bytes /= 1024.0
             unit_index += 1
-        
+
         # Format the result with one decimal place using f-string
         size_formatted = f"{size_in_bytes:.1f}{units[unit_index]}"
-        
+
         return size_formatted
 
     def update_window_title(self, text):
@@ -809,11 +860,11 @@ class Unify:
     def splash():
         print("\n")
         print("=================================\n"
-            "|                               |\n"
-            "|       Unify for Spotify       |\n"
-            "|       by HammadXP             |\n"
-            "|                               |\n"
-            "=================================")
+              "|                               |\n"
+              "|       Unify for Spotify       |\n"
+              "|       by HammadXP             |\n"
+              "|                               |\n"
+              "=================================")
         print("\n")
 
     def clear():

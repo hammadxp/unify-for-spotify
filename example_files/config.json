@@ -1,7 +1,7 @@
 {
   "region": "US",
-  "library_folder": "C:\\Users\\%USERNAME%\\Music",
-  "temp_download_folder": "C:\\Users\\%USERNAME%\\Music\\_temp",
+  "library_folder": "D:\\Music",
+  "temp_download_folder": "D:\\Music\\_temp",
   "download_format": "mp3",
   "download_quality": "high",
   "transcode_bitrate": "auto",
