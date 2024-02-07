@@ -36,6 +36,7 @@ def main():
 
         app.download_handler()
 
+    app.remove_temp_download_folder()
     app.update_window_title('Finished.')
     input('\nFinished.')
 

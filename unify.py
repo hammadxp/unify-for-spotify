@@ -779,6 +779,9 @@ class Unify:
             self.status_bar.update(
                 self.status_bar_id, description=f"ERROR: ({e})", visible=True)
 
+    def remove_temp_download_folder(self):
+        send2trash(self.config['temp_download_folder'])
+
     ######################################################
 
     def fetch_url(self, url):
