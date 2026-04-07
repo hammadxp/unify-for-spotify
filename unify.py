@@ -7,6 +7,7 @@ import ctypes
 import platform
 import requests
 import shutil
+import webbrowser
 from pathlib import Path
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
@@ -109,8 +110,16 @@ class Unify:
         # if user hasn't logged in to librespot-python before, sign them in
         while True:
             try:
-                self.librespot_session = Session.Builder().user_pass(
-                    os.getenv("SPOTIFY_USERNAME", ""), os.getenv("SPOTIFY_PASSWORD", "")).create()
+                def auth_url_callback(auth_url):
+                    print(f"\nOpening browser: {auth_url}")
+                    try:
+                        webbrowser.open(auth_url)
+                    except Exception:
+                        pass
+
+                # self.librespot_session = Session.Builder().user_pass(
+                #     os.getenv("SPOTIFY_USERNAME", ""), os.getenv("SPOTIFY_PASSWORD", "")).create()
+                self.librespot_session = Session.Builder().oauth(auth_url_callback).create()
                 return
             except RuntimeError:
                 pass
@@ -403,7 +412,14 @@ class Unify:
 
                 # delete local_track
                 if os.path.exists(local_track['file_path']):
-                    send2trash(local_track['file_path'])
+                    if self.config["archive_removed_songs"]:
+                        current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                        destination_file_path = os.path.join(
+                            self.config["archive_folder"], f"{local_track['file_name']} ({current_timestamp}).{local_track['file_extension']}")
+                        shutil.move(
+                            local_track['file_path'], destination_file_path)
+                    else:
+                        send2trash(local_track['file_path'])
 
         for item in self.local_tracks_unmatched:
             self.local_tracks_raw.remove(item)
@@ -418,7 +434,14 @@ class Unify:
 
                 # delete local_track
                 if os.path.exists(local_track['file_path']):
-                    send2trash(local_track['file_path'])
+                    if self.config["archive_removed_songs"]:
+                        current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+                        destination_file_path = os.path.join(
+                            self.config["archive_folder"], f"{local_track['file_name']} ({current_timestamp}).{local_track['file_extension']}")
+                        shutil.move(
+                            local_track['file_path'], destination_file_path)
+                    else:
+                        send2trash(local_track['file_path'])
 
             else:
                 checked_ids.add(local_track['track_id'])
