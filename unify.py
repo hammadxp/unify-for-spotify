@@ -73,6 +73,7 @@ class Unify:
         # Download handler
         self.temp_download_file = ''
         self.temp_transcode_file = ''
+        self.final_output_file = ''
         self.currently_downloading_track = {}
         self.newly_downloaded_track = {}
         self.newly_downloaded_track_genres = ''
@@ -511,9 +512,10 @@ class Unify:
                         self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
 
                     # RUN TASKS
-                    self.downloader()
-                    self.change_modification_date_to_added_date()
-                    self.move_downloaded_track()
+                    download_succeeded = self.downloader()
+                    if download_succeeded:
+                        self.change_modification_date_to_added_date()
+                        self.move_downloaded_track()
                     self.newly_downloaded_track_genres = ''
                     self.newly_downloaded_track_lyrics = ''
                     self.completed_index += 1
@@ -541,25 +543,40 @@ class Unify:
                     self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
 
     def downloader(self):
-        # localize variables for repetitive usage
         spotify_track = self.currently_downloading_track
+        temp_basename = f"{spotify_track['track_id']}_{spotify_track['save_as']}"
+        temp_basename = re.sub(r'[\\/*?:"<>|]', "", temp_basename).strip()
+
         self.temp_download_file = os.path.join(
-            self.config['temp_download_folder'], f"temp.{self.config['download_format']}")
+            self.config['temp_download_folder'], f"{temp_basename}.ogg")
+        self.temp_transcode_file = os.path.join(
+            self.config['temp_download_folder'], f"{temp_basename}.{self.config['download_format']}")
+        self.final_output_file = os.path.join(
+            self.local_playlist_folder, f"{spotify_track['save_as']}.{self.config['download_format']}")
 
         # create temp folder
         if not os.path.exists(self.config['temp_download_folder']):
             os.makedirs(self.config['temp_download_folder'])
 
-        # remove existing temp file
-        if os.path.exists(self.temp_download_file):
-            send2trash(self.temp_download_file)
+        # clear stale temp files for this track
+        for temp_file in (self.temp_download_file, self.temp_transcode_file):
+            if os.path.exists(temp_file):
+                Path(temp_file).unlink()
 
         # download audio, transcode temp downloaded file to a useable format, fetch genres and lyrics, add metadata
-        self.download_audio_stream()
-        self.transcode_audio()
+        if not self.download_audio_stream():
+            return False
+
+        if not self.transcode_audio():
+            return False
+
         self.fetch_genres()
         self.fetch_lyrics()
-        self.add_metadata()
+
+        if not self.add_metadata():
+            return False
+
+        return True
 
     def download_audio_stream(self):
         try:
@@ -601,17 +618,17 @@ class Unify:
             self.download_progress.update(
                 self.download_progress_id, visible=False)
 
+            return True
+
         except Exception as e:
             self.status_bar.update(
                 self.status_bar_id, description=f"ERROR: Could not download audio stream. ({e})", visible=True)
+            return False
 
     def transcode_audio(self):
         try:
             self.metadata_progress.update(
                 self.metadata_progress_id, description="Transcoding audio", visible=True)
-
-            self.temp_transcode_file = os.path.join(
-                self.config['temp_download_folder'], f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
 
             codecs = {
                 'aac': 'aac',
@@ -653,14 +670,17 @@ class Unify:
                     Path(self.temp_download_file).unlink()
 
                 self.metadata_progress.stop_task(self.metadata_progress_id)
+                return True
 
             except ffmpy.FFExecutableNotFoundError:
                 self.status_bar.update(
                     self.status_bar_id, description=f'Skipping {file_codec.upper()} conversion (FFMPEG not found)', visible=True)
+                return False
 
         except Exception as e:
             self.status_bar.update(
                 self.status_bar_id, description=f"ERROR: Could not transcode audio stream. ({e})", visible=True)
+            return False
 
     def fetch_genres(self):
         try:
@@ -780,10 +800,12 @@ class Unify:
                 music_file.save()
 
             self.metadata_progress.stop_task(self.metadata_progress_id)
+            return True
 
         except Exception as e:
             self.status_bar.update(
-                self.status_bar_id, description="ERROR: Could not write metadata to audio file. Make sure ffmpeg is installed and added to your PATH.", visible=True)
+                self.status_bar_id, description=f"ERROR: Could not write metadata to audio file. ({e})", visible=True)
+            return False
 
     def change_modification_date_to_added_date(self):
         try:
@@ -812,8 +834,7 @@ class Unify:
                 self.metadata_progress_id, description="Moving file to playlist folder")
 
             file_path_old = self.temp_transcode_file
-            file_path_new = os.path.join(
-                self.local_playlist_folder, f"{self.currently_downloading_track['save_as']}.{self.config['download_format']}")
+            file_path_new = self.final_output_file
 
             if not os.path.exists(self.local_playlist_folder):
                 os.makedirs(self.local_playlist_folder)
