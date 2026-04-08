@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 
 import ffmpy
 import music_tag
+import mutagen.id3
 from send2trash import send2trash
 
 import spotipy
@@ -750,10 +751,33 @@ class Unify:
             music_file.save()
 
             # add cover
-            cover = requests.get(spotify_track['image_url']).content
-            music_file = music_tag.load_file(self.temp_transcode_file)
-            music_file['artwork'] = cover
-            music_file.save()
+            cover_response = requests.get(spotify_track['image_url'])
+            cover_response.raise_for_status()
+
+            cover_bytes = cover_response.content
+            content_type = cover_response.headers.get('Content-Type', '').split(';', 1)[0].strip().lower()
+            cover_format = {
+                'image/jpeg': 'jpeg',
+                'image/jpg': 'jpeg',
+                'image/png': 'png',
+            }.get(content_type, 'jpeg')
+
+            if self.config['download_format'] == 'mp3':
+                id3_tags = mutagen.id3.ID3(self.temp_transcode_file)
+                id3_tags.delall('APIC')
+                id3_tags.add(mutagen.id3.APIC(
+                    encoding=3,
+                    mime=content_type or f'image/{cover_format}',
+                    type=mutagen.id3.PictureType.COVER_FRONT,
+                    desc='Cover',
+                    data=cover_bytes
+                ))
+                id3_tags.save(self.temp_transcode_file, v2_version=3)
+
+            else:
+                music_file = music_tag.load_file(self.temp_transcode_file)
+                music_file['artwork'] = music_tag.Artwork(cover_bytes, fmt=cover_format)
+                music_file.save()
 
             self.metadata_progress.stop_task(self.metadata_progress_id)
 
