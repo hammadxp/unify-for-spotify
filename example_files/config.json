@@ -1,13 +1,10 @@
 {
-  "region": "US",
-  "library_folder": "D:\\Music",
-  "temp_download_folder": "D:\\Music\\_temp",
+  "temp_download_folder": "C:\\Downloads\\.unify",
+  "archive_folder": "C:\\Music\\Archived\\Unify",
   "download_format": "mp3",
   "download_quality": "high",
   "transcode_bitrate": "auto",
   "chunk_size": 20000,
-  "retry_attempts": 3,
-  "playlists": {
-    "for_unify": "https://open.spotify.com/playlist/6ejv8ixYXaAkTvd2W5Ojh9?si=f3dd43080a414e4e"
-  }
+  "retry_attempts": 1,
+  "region": "US"
 }
