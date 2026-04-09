@@ -1,8 +1,9 @@
 __pycache__
 .venv
 .cache
-credentials_cache
-
+.cache-spotipy
 .env
+
 config.json
 credentials.json
+credentials_cache

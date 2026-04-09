@@ -5,6 +5,7 @@ import math
 import time
 import ctypes
 import platform
+import unicodedata
 import requests
 import shutil
 import webbrowser
@@ -18,7 +19,8 @@ import mutagen.id3
 from send2trash import send2trash
 
 import spotipy
-from spotipy.oauth2 import SpotifyClientCredentials
+from spotipy import SpotifyException
+from spotipy.oauth2 import SpotifyOAuth
 from librespot.core import Session
 from librespot.metadata import TrackId
 from librespot.audio.decoders import AudioQuality, VorbisOnlyAudioQuality
@@ -43,10 +45,11 @@ class Unify:
         self.init_state()
 
     def init_state(self):
-        # Playlist info
+        # Sync info
+        self.source_type = ''
         self.playlist_url = ''
         self.playlist_id = ''
-        self.playlist_name = ''
+        self.playlist_name = 'Liked Songs'
         self.local_playlist_folder = ''
 
         # Spotify tracks
@@ -83,61 +86,132 @@ class Unify:
         self.completed_index = 0
         self.progress_bar_text = ''
 
-    def create_spotipy_session(self):
+    def show_status(self, message):
+        if hasattr(self, 'status_bar') and hasattr(self, 'status_bar_id'):
+            self.status_bar.update(
+                self.status_bar_id, description=message, visible=True)
+        else:
+            print(f"\n{message}\n")
+
+    def create_spotipy_session(self, verbose=True):
         try:
             load_dotenv()
 
-            client_id = os.getenv("SPOTIFY_CLIENT_ID", "")
-            client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "")
+            client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
+            client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip()
+            redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback").strip()
 
-            client_credentials_manager = SpotifyClientCredentials(
-                client_id=client_id, client_secret=client_secret)
+            if not client_id or not client_secret:
+                raise ValueError(
+                    "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env for Spotify Web API access")
 
-            self.spotipy_session = spotipy.Spotify(
-                client_credentials_manager=client_credentials_manager)
+            scope = "user-library-read playlist-read-private playlist-read-collaborative"
+            self.spotipy_auth_manager = SpotifyOAuth(
+                client_id=client_id,
+                client_secret=client_secret,
+                redirect_uri=redirect_uri,
+                scope=scope,
+                cache_path=".cache-spotipy",
+                open_browser=True
+            )
+
+            self.spotipy_session = spotipy.Spotify(auth_manager=self.spotipy_auth_manager)
+            self.ensure_spotipy_token()
+
+            if verbose:
+                print("spotipy user session activated.")
 
         except Exception as e:
-            self.status_bar.update(
-                self.status_bar_id, description=f"ERROR: Could not create SpotiPy session. ({e})", visible=True)
+            self.show_status(
+                f"ERROR: Could not create Spotipy user session. ({e})")
+            raise
+
+    def ensure_spotipy_token(self, force_refresh=False):
+        token_info = self.spotipy_auth_manager.get_cached_token()
+
+        if force_refresh:
+            if token_info and token_info.get('refresh_token'):
+                self.spotipy_auth_manager.refresh_access_token(
+                    token_info['refresh_token'])
+            else:
+                self.spotipy_auth_manager.get_access_token(as_dict=False)
+            return
+
+        validated_token = self.spotipy_auth_manager.validate_token(token_info)
+        if not validated_token:
+            self.spotipy_auth_manager.get_access_token(as_dict=False)
+
+    def call_spotipy(self, method_name, *args, retry_count=0, **kwargs):
+        try:
+            self.ensure_spotipy_token()
+            method = getattr(self.spotipy_session, method_name)
+            return method(*args, **kwargs)
+
+        except SpotifyException as e:
+            if e.http_status == 401 and retry_count < 1:
+                # Recover by rebuilding the client/auth manager once, since the
+                # in-memory session can get out of sync with the cached token.
+                self.create_spotipy_session(verbose=False)
+                self.ensure_spotipy_token(force_refresh=True)
+                return self.call_spotipy(method_name, *args, retry_count=retry_count + 1, **kwargs)
+
+            if e.http_status == 429 and retry_count < 3:
+                retry_after = 5
+                headers = getattr(e, 'headers', {}) or {}
+                if 'Retry-After' in headers:
+                    try:
+                        retry_after = max(1, int(float(headers['Retry-After'])))
+                    except ValueError:
+                        retry_after = 5
+                self.show_status(
+                    f"Spotify rate limited request to '{method_name}'. Retrying in {retry_after}s.")
+                time.sleep(retry_after)
+                return self.call_spotipy(method_name, *args, retry_count=retry_count + 1, **kwargs)
+
+            raise
 
     def login_to_librespot(self):
         # check if the user has already logged in to librespot with their Spotify credentials, if so, retrieve session details from that file
         if os.path.isfile("credentials.json"):
             try:
                 self.librespot_session = Session.Builder().stored_file().create()
+                print("librespot user session activated.")
                 return
-            except RuntimeError:
+            except Exception:
                 pass
 
-        # if user hasn't logged in to librespot-python before, sign them in
-        while True:
-            try:
-                def auth_url_callback(auth_url):
-                    print(f"\nOpening browser: {auth_url}")
-                    try:
-                        webbrowser.open(auth_url)
-                    except Exception:
-                        pass
+        # if user hasn't logged in to librespot before, sign them in
+        try:
+            def auth_url_callback(auth_url):
+                print(f"\nOpening browser for librespot login: {auth_url}")
+                try:
+                    webbrowser.open(auth_url)
+                except Exception:
+                    pass
 
-                # self.librespot_session = Session.Builder().user_pass(
-                #     os.getenv("SPOTIFY_USERNAME", ""), os.getenv("SPOTIFY_PASSWORD", "")).create()
-                self.librespot_session = Session.Builder().oauth(auth_url_callback).create()
-                return
-            except RuntimeError:
-                pass
+            print("librespot user session created.")
+            self.librespot_session = Session.Builder().oauth(auth_url_callback).create()
+            return
+
+        except Exception as e:
+            self.show_status(
+                f"ERROR: Could not log in to librespot with OAuth. ({e})")
+            raise
 
     def load_config(self):
         try:
             with open('config.json', 'r') as config_file:
                 self.config = json.load(config_file)
+                print("config.json loaded.")
 
         except FileNotFoundError:
-            self.status_bar.update(
-                self.status_bar_id, description="ERROR: Config file not found. Make sure cmd is opened in the Unify script's folder and config.json exists in that folder.", visible=True)
+            self.show_status(
+                "ERROR: Config file not found. Make sure cmd is opened in the Unify script's folder and config.json exists in that folder.")
 
     def init_progress_bars(self):
         # CREATE PROGRESS BARS
         self.status_bar = Progress(TextColumn("{task.description}"))
+        self.status_bar_id = self.status_bar.add_task("", visible=False)
 
         self.song_progress = Progress(TextColumn("{task.description}"))
 
@@ -182,51 +256,88 @@ class Unify:
 
     ######################################################
 
+    def prompt_sync_mode(self):
+        while True:
+            print("")
+            print("1. Download your Liked Songs library")
+            print("2. Download an individual playlist")
+            choice = input("\nSelect an option (1 or 2): ").strip()
+
+            if choice == '1':
+                self.source_type = 'liked'
+                self.playlist_name = 'Liked Songs'
+                return
+
+            if choice == '2':
+                self.source_type = 'playlist'
+                return
+
+            print("\nPlease enter 1 or 2.\n")
+
+    def prompt_playlist_url(self):
+        while True:
+            playlist_url = input("Paste the Spotify playlist URL: ").strip()
+            if playlist_url:
+                self.playlist_url = playlist_url
+                self.get_playlist_id()
+                if self.playlist_id:
+                    return
+
+            print("\nPlease provide a valid Spotify playlist URL.\n")
+
+    def prompt_destination_folder(self):
+        while True:
+            destination_folder = input(
+                "Enter the destination folder path: ").strip().strip('"')
+            if destination_folder:
+                self.local_playlist_folder = os.path.abspath(destination_folder)
+                return
+
+            print("\nDestination folder is required.\n")
+
     def get_playlist_id(self):
         try:
-            if match := re.match(r"https://open.spotify.com/playlist/(.*)\?", self.playlist_url):
+            if match := re.match(r"https://open\.spotify\.com/playlist/([^?]+)", self.playlist_url):
                 self.playlist_id = match.groups()[0]
             else:
                 raise ValueError()
 
         except ValueError as e:
-            self.status_bar.update(
-                self.status_bar_id, description=f"ERROR: Bad playlist URL format. ({self.playlist_url})", visible=True)
+            self.playlist_id = ''
+            self.show_status(
+                f"ERROR: Bad playlist URL format. ({self.playlist_url})")
 
     def get_playlist_name(self):
         try:
-            self.playlist_name = self.spotipy_session.user_playlist(
-                user=None, playlist_id=self.playlist_id, fields="name")['name']
+            response = self.call_spotipy(
+                'playlist', self.playlist_id, fields="name")
+            self.playlist_name = response['name']
 
         except Exception as e:
-            self.status_bar.update(
-                self.status_bar_id, description=f"ERROR: Could not retrieve playlist name. ({e})", visible=True)
+            self.playlist_name = f"Playlist {self.playlist_id}"
+            self.show_status(
+                f"ERROR: Could not retrieve playlist name. ({e})")
 
     def create_local_playlist_folder(self):
         try:
-            self.local_playlist_folder = os.path.join(
-                self.config['library_folder'], self.playlist_name)
-
             if not os.path.exists(self.local_playlist_folder):
                 os.makedirs(self.local_playlist_folder)
 
         except Exception as e:
-            self.status_bar.update(
-                self.status_bar_id, description=f"ERROR: Could not create local playlist folder. ({e})", visible=True)
+            self.show_status(
+                f"ERROR: Could not create local playlist folder. ({e})")
 
     ######################################################
 
     def get_spotify_tracks_raw(self):
         try:
-            response = self.spotipy_session.playlist_tracks(
-                self.playlist_id, market=self.config['region'])
-            tracks_fetched = response['items']
-
-            while response['next']:
-                response = self.spotipy_session.next(response)
-                tracks_fetched.extend(response['items'])
+            print("Fetching playlist items...")
+            tracks_fetched = self.fetch_source_tracks()
 
             for track in tracks_fetched:
+                if not track.get('track'):
+                    continue
+
                 if track['track']['duration_ms'] == 0 or track['track']['is_local']:
                     continue
 
@@ -286,17 +397,49 @@ class Unify:
                 self.spotify_tracks_raw.append(spotify_track)
                 self.spotify_track_ids.add(spotify_track['track_id'])
 
-            # sort by title, but if titles are same then sort by artist
-            self.spotify_tracks_raw.sort(key=lambda a: (
-                a['title'].lower(), a['artist'].lower()))
+            # Older liked songs should download first.
+            self.spotify_tracks_raw.sort(key=lambda a: a.get('added_at') or '')
 
         except Exception as e:
-            self.status_bar.update(
-                self.status_bar_id, description=f"ERROR: Could not get Spotify tracks. ({e})", visible=True)
+            self.show_status(
+                f"ERROR: Could not get Spotify tracks. ({e})")
+            return False
 
-    def get_local_tracks_raw(self):
+        return True
+
+    def fetch_source_tracks(self):
+        if self.source_type == 'playlist':
+            return self.fetch_playlist_tracks()
+
+        return self.fetch_liked_tracks()
+
+    def fetch_liked_tracks(self):
+        response = self.call_spotipy(
+            'current_user_saved_tracks', limit=50, offset=0, market=self.config['region'])
+        tracks_fetched = response['items']
+
+        while response['next']:
+            response = self.call_spotipy('next', response)
+            tracks_fetched.extend(response['items'])
+
+        return tracks_fetched
+
+    def fetch_playlist_tracks(self):
+        response = self.call_spotipy(
+            'playlist_tracks', self.playlist_id, market=self.config['region'])
+        tracks_fetched = response['items']
+
+        while response['next']:
+            response = self.call_spotipy('next', response)
+            tracks_fetched.extend(response['items'])
+
+        return tracks_fetched
+
+    def get_local_tracks_raw(self, root_folder=None):
         try:
-            for folder, subfolders, files in os.walk(self.local_playlist_folder):
+            root_folder = root_folder or self.local_playlist_folder
+
+            for folder, subfolders, files in os.walk(root_folder):
                 for file in files:
                     file_path = os.path.join(folder, file)
                     file_dir = folder
@@ -306,7 +449,8 @@ class Unify:
                     if file_extension == self.config['download_format']:
                         music_file = music_tag.load_file(file_path)
 
-                        title = str(music_file['title'])
+                        tracktitle = str(music_file['tracktitle']).strip()
+                        title = tracktitle or str(music_file['title']).strip()
                         artist = str(music_file['artist'])
                         album = str(music_file['album'])
                         track_uri = str(music_file['comment'])
@@ -338,6 +482,45 @@ class Unify:
         except Exception as e:
             self.status_bar.update(
                 self.status_bar_id, description=f"ERROR: Could not get local tracks. ({e})", visible=True)
+
+    def normalize_text(self, value):
+        normalized = unicodedata.normalize('NFKC', str(value or ''))
+        normalized = normalized.replace('\u2019', "'").replace('\u2018', "'")
+        normalized = normalized.replace('\u2013', "-").replace('\u2014', "-")
+        normalized = re.sub(r'\s+', ' ', normalized)
+        return normalized.strip().lower()
+
+    def tracks_match(self, spotify_track, local_track):
+        return (
+            self.normalize_text(spotify_track['title']) == self.normalize_text(local_track['title']) and
+            self.normalize_text(spotify_track['artist']) == self.normalize_text(local_track['artist']) and
+            self.normalize_text(spotify_track['album']) == self.normalize_text(local_track['album']) and
+            abs(spotify_track['duration'] - local_track['duration']) <= 2000
+        )
+
+    def get_track_signature(self, track):
+        return (
+            self.normalize_text(track['title']),
+            self.normalize_text(track['artist']),
+            self.normalize_text(track['album']),
+            round(track['duration'] / 1000)
+        )
+
+    def get_archive_folder(self):
+        source_folder_name = re.sub(
+            r'[\\/*?:"<>|]', "", self.playlist_name).strip() or "Library"
+        archive_folder = os.path.join(self.config["archive_folder"], source_folder_name)
+        os.makedirs(archive_folder, exist_ok=True)
+        return archive_folder
+
+    def archive_local_track(self, local_track):
+        current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        archive_folder = self.get_archive_folder()
+        archive_file_name = f"{local_track['file_name']} ({current_timestamp}).{local_track['file_extension']}"
+        destination_file_path = os.path.join(archive_folder, archive_file_name)
+
+        if os.path.exists(local_track['file_path']):
+            shutil.move(local_track['file_path'], destination_file_path)
 
     ######################################################
 
@@ -408,20 +591,15 @@ class Unify:
 
     def local_tracks_delete_unmatched(self):
         for local_track in self.local_tracks_raw:
-            # for finding local tracks whose id do not match with any track in spotify playlist
-            if local_track['track_id'] not in self.spotify_track_ids or "spotify" not in local_track['track_uri']:
-                self.local_tracks_unmatched.append(local_track)
+            matched_spotify_track = next(
+                (spotify_track for spotify_track in self.spotify_tracks_raw if self.tracks_match(
+                    spotify_track, local_track)),
+                None
+            )
 
-                # delete local_track
-                if os.path.exists(local_track['file_path']):
-                    if self.config["archive_removed_songs"]:
-                        current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                        destination_file_path = os.path.join(
-                            self.config["archive_folder"], f"{local_track['file_name']} ({current_timestamp}).{local_track['file_extension']}")
-                        shutil.move(
-                            local_track['file_path'], destination_file_path)
-                    else:
-                        send2trash(local_track['file_path'])
+            if not matched_spotify_track:
+                self.local_tracks_unmatched.append(local_track)
+                self.archive_local_track(local_track)
 
         for item in self.local_tracks_unmatched:
             self.local_tracks_raw.remove(item)
@@ -430,65 +608,38 @@ class Unify:
         checked_ids = set()
 
         for local_track in self.local_tracks_raw:
-            # for finding local tracks that have same ids
-            if local_track['track_id'] in checked_ids:
-                self.local_tracks_duplicate.append(local_track)
+            local_track_signature = self.get_track_signature(local_track)
 
-                # delete local_track
-                if os.path.exists(local_track['file_path']):
-                    if self.config["archive_removed_songs"]:
-                        current_timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-                        destination_file_path = os.path.join(
-                            self.config["archive_folder"], f"{local_track['file_name']} ({current_timestamp}).{local_track['file_extension']}")
-                        shutil.move(
-                            local_track['file_path'], destination_file_path)
-                    else:
-                        send2trash(local_track['file_path'])
+            if local_track_signature in checked_ids:
+                self.local_tracks_duplicate.append(local_track)
+                self.archive_local_track(local_track)
 
             else:
-                checked_ids.add(local_track['track_id'])
+                checked_ids.add(local_track_signature)
 
         for item in self.local_tracks_duplicate:
             self.local_tracks_raw.remove(item)
 
     def local_tracks_fix_filename(self):
-        for local_track in self.local_tracks_raw:
-            for spotify_track in self.spotify_tracks_raw:
-                # find specific track from spotify playlist
-                if local_track['track_id'] == spotify_track['track_id']:
-
-                    # find track whose file_name is different from save_as
-                    if local_track['file_name'] != spotify_track['save_as']:
-                        # rename local_track
-                        if os.path.exists(local_track['file_path']):
-                            os.rename(local_track['file_path'], os.path.join(
-                                local_track['file_dir'], spotify_track['save_as'] + local_track['file_extension']))
+        return
 
     ######################################################
 
     def get_spotify_tracks_to_download(self):
         for spotify_track in self.spotify_tracks_raw:
-            # find tracks that have not been downloaded yet
-            if spotify_track['track_id'] not in self.local_track_ids:
+            matched_local_track = next(
+                (local_track for local_track in self.local_tracks_raw if self.tracks_match(
+                    spotify_track, local_track)),
+                None
+            )
+
+            if matched_local_track:
+                self.spotify_tracks_already_downloaded.append(spotify_track)
+            else:
                 self.spotify_tracks_to_download.append(spotify_track)
 
-            else:
-                self.spotify_tracks_already_downloaded.append(spotify_track)
-
     def get_spotify_tracks_to_download_incomplete(self):
-        for spotify_track in self.spotify_tracks_raw:
-            for local_track in self.local_tracks_raw:
-                # find specific track from spotify playlist
-                if spotify_track['track_id'] == local_track['track_id']:
-
-                    # find track whose duration is incomplete and need to be re-downloaded
-                    if spotify_track['duration'] != local_track['duration']:
-                        # duration difference in milliseconds, 1000ms = 1s
-                        if (spotify_track['duration'] - local_track['duration']) > 1000:
-                            self.spotify_tracks_incomplete.append(
-                                spotify_track)
-                            self.spotify_tracks_to_download.append(
-                                spotify_track)
+        return
 
     ######################################################
 
@@ -509,7 +660,7 @@ class Unify:
                         "", visible=False)
 
                     self.playlist_progress.update(
-                        self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
+                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Archived: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
 
                     # RUN TASKS
                     download_succeeded = self.downloader()
@@ -529,18 +680,18 @@ class Unify:
                         self.song_progress_id, description=f"[bold green]{spotify_track['title']} downloaded")
 
                     self.playlist_progress.update(
-                        self.playlist_progress_id, description=f"Playlist: {self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Unavailable: {len(self.spotify_tracks_unavailable)} |")
+                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Archived: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
 
                 # PLAYLIST COMPLETED MESSAGE
                 self.playlist_progress.update(
                     self.playlist_progress_id, visible=False)
                 self.playlist_completed.update(
-                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
+                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} sync completed", visible=True)
 
         else:
             with Live(self.progress_panel_alt):
                 self.playlist_completed.update(
-                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} playlist downloaded", visible=True)
+                    self.playlist_completed_id, description=f"[bold green]{self.playlist_name} sync completed", visible=True)
 
     def downloader(self):
         spotify_track = self.currently_downloading_track
@@ -687,9 +838,9 @@ class Unify:
             self.metadata_progress.update(
                 self.metadata_progress_id, description="Fetching genres")
 
-            response = self.spotipy_session.artists(
-                artists=self.currently_downloading_track['artist_ids'])
-            artists_fetched = response['artists']
+            response = self.call_spotipy(
+                'artists', self.currently_downloading_track['artist_ids'])
+            artists_fetched = response.get('artists', [])
 
             artists_genres = [artist['genres'] for artist in artists_fetched]
 
@@ -756,6 +907,7 @@ class Unify:
             # add tags
             music_file = music_tag.load_file(self.temp_transcode_file)
             music_file['tracktitle'] = spotify_track['title']
+            music_file['title'] = spotify_track['title']
             music_file['artist'] = spotify_track['artist']
             music_file['album'] = spotify_track['album']
             music_file['albumartist'] = spotify_track['albumartist']
@@ -831,7 +983,7 @@ class Unify:
     def move_downloaded_track(self):
         try:
             self.metadata_progress.update(
-                self.metadata_progress_id, description="Moving file to playlist folder")
+                self.metadata_progress_id, description="Moving file to destination folder")
 
             file_path_old = self.temp_transcode_file
             file_path_new = self.final_output_file
@@ -848,13 +1000,16 @@ class Unify:
                 self.status_bar_id, description=f"ERROR: ({e})", visible=True)
 
     def remove_temp_download_folder(self):
-        send2trash(self.config['temp_download_folder'])
+        if os.path.exists(self.config['temp_download_folder']):
+            send2trash(self.config['temp_download_folder'])
 
     ######################################################
 
-    def fetch_url(self, url):
+    def fetch_url(self, url, retry_count=0):
+        access_token = self.spotipy_session.auth_manager.get_access_token(
+            as_dict=False)
         headers = {
-            'Authorization': f"Bearer {self.librespot_session.tokens().get_token('user-read-email','playlist-read-private','user-library-read', 'user-follow-read').access_token}",
+            'Authorization': f"Bearer {access_token}",
             'Accept-Language': "en",
             'Accept': 'application/json',
             'app-platform': 'WebPlayer'
@@ -862,25 +1017,39 @@ class Unify:
 
         response = requests.get(url, headers=headers)
         response_text = response.text
-        retry_count = 0
 
         try:
             response_json = response.json()
 
         except json.decoder.JSONDecodeError:
             response_json = {"error": {"status": "unknown",
-                                       "message": "received an empty response"}}
+                                       "message": response_text or "received an empty response"}}
 
-            if not response_json or 'error' in response_json:
-                if retry_count < (self.config['retry_attempts'] - 1):
-                    self.status_bar.update(
-                        self.status_bar_id, description=f"ERROR: Could not fetch the requested URL. (retry {retry_count + 1}) ({response_json['error']['status']}): {response_json['error']['message']}", visible=True)
-                    time.sleep(5)
+        if response.status_code >= 400 or 'error' in response_json:
+            error_status = response_json.get('error', {}).get('status', response.status_code)
+            error_message = response_json.get('error', {}).get('message', response.reason or 'unknown error')
+            retry_limit = self.config.get('retry_attempts', 0)
+            retry_delay = 5
 
-                    return self.invoke_url(url, retry_count + 1)
+            if int(error_status) == 429:
+                retry_limit = max(retry_limit, 3)
+                retry_after = response.headers.get('Retry-After')
+                if retry_after:
+                    try:
+                        retry_delay = max(1, int(float(retry_after)))
+                    except ValueError:
+                        retry_delay = 5
+                else:
+                    retry_delay = min(30, 2 ** retry_count)
 
-                raise Exception(
-                    f"Reason: {response_json['error']['status']} | Error message: {response_json['error']['message']}")
+            if retry_count < retry_limit:
+                self.show_status(
+                    f"ERROR: Could not fetch the requested URL. (retry {retry_count + 1}) ({error_status}): {error_message}")
+                time.sleep(retry_delay)
+                return self.fetch_url(url, retry_count + 1)
+
+            raise Exception(
+                f"Reason: {error_status} | Error message: {error_message}")
 
         return response_text, response_json
 
