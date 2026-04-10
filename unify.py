@@ -688,8 +688,10 @@ class Unify:
             suffix += 1
 
     def get_archive_folder(self):
-        source_folder_name = self.sanitize_path_component(self.playlist_name)
-        archive_folder = os.path.join(self.config["archive_folder"], source_folder_name)
+        # source_folder_name = self.sanitize_path_component(self.playlist_name)
+        # archive_folder = os.path.join(self.config["archive_folder"], source_folder_name)
+
+        archive_folder = self.config["archive_folder"]
         os.makedirs(archive_folder, exist_ok=True)
         return archive_folder
 
@@ -812,7 +814,7 @@ class Unify:
 
             if local_track_signature in checked_ids:
                 self.local_tracks_duplicate.append(local_track)
-                self.archive_local_track(local_track)
+                send2trash(local_track['file_path'])
 
             else:
                 checked_ids.add(local_track_signature)
