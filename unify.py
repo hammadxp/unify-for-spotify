@@ -522,6 +522,23 @@ class Unify:
         if os.path.exists(local_track['file_path']):
             shutil.move(local_track['file_path'], destination_file_path)
 
+    def hide_path_if_supported(self, path):
+        if platform.system() != "Windows":
+            return
+
+        FILE_ATTRIBUTE_HIDDEN = 0x02
+        FILE_ATTRIBUTE_SYSTEM = 0x04
+
+        try:
+            current_attributes = ctypes.windll.kernel32.GetFileAttributesW(path)
+            if current_attributes == -1:
+                return
+
+            hidden_attributes = current_attributes | FILE_ATTRIBUTE_HIDDEN
+            ctypes.windll.kernel32.SetFileAttributesW(path, hidden_attributes)
+        except Exception:
+            pass
+
     ######################################################
 
     def spotify_tracks_remove_uploaded(self):
@@ -708,6 +725,7 @@ class Unify:
         # create temp folder
         if not os.path.exists(self.config['temp_download_folder']):
             os.makedirs(self.config['temp_download_folder'])
+            self.hide_path_if_supported(self.config['temp_download_folder'])
 
         # clear stale temp files for this track
         for temp_file in (self.temp_download_file, self.temp_transcode_file):

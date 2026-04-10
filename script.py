@@ -30,6 +30,7 @@ def main():
     app.load_config()
     app.init_state()
 
+    # get source_type
     if args.source_type:
         app.source_type = args.source_type
         if app.source_type == 'liked':
@@ -37,6 +38,7 @@ def main():
     else:
         app.prompt_sync_mode()
 
+    # get playlist_url
     if app.source_type == 'playlist':
         if args.playlist_url:
             app.playlist_url = args.playlist_url.strip()
@@ -47,6 +49,7 @@ def main():
             app.prompt_playlist_url()
         app.get_playlist_name()
 
+    # get destination_folder
     if args.destination_folder:
         app.local_playlist_folder = args.destination_folder.strip().strip('"')
     else:
