@@ -1,6 +1,6 @@
-Unify is a python script for keeping a copy of your Spotify music collection or playlists locally and keep them in sync.
+Unify is a python script for keeping a copy of your Spotify music collection locally and keeping it in sync.
 
-The script fetches data for all tracks of a Spotify playlist (using SpotiPy), then does it's magic of filtering for the tracks that have not been saved yet. It will ignore tracks that have already been saved, are unavailable or were uploaded by the user. The playlists will be organized into folders based on the playlist name.
+The script can download Liked Songs, an individual playlist, or a single track. It can also organize existing local downloads by matching them against a Spotify playlist and moving matches into a playlist-named folder.
 
 ## Features
 
@@ -8,12 +8,13 @@ The script fetches data for all tracks of a Spotify playlist (using SpotiPy), th
 - Handles tracks with same title, or artist, or even both and rename files in such situations
 - Updates file modification date to match with the date when the track was added to the playlist
 - Keeps tracks in their respective folders based on the playlist name
+- Lets you choose folders with the system folder picker instead of typing paths
+- Includes an interactive option selector that works with arrow keys and Enter
 
 ## Notes
 
 - Any extra tracks present in playlist folder locally that are not present in Spotify playlist will be removed
 - Uploaded tracks will be ignored because they can't be recognized by `librespot-python`
-- The script relies on the list of playlists you provide to it in the `config.json` file, so saving a song individually won't be possible, you will need to add it to a playlist first
 - The script has only been tested with MP3 files, on Windows with Python v3.10
 
 \* you can modify the script to get around these hiccups
@@ -32,7 +33,7 @@ Make sure you have the following installed on your system:
 
 ### Step 2: Fill credentials and config
 
-Move `.env` and `config.json` files from `example_files` folder to parent folder where `script.py` resides.
+Move `.env` and `config.json` files from `example_files` folder to the project root where `script.py` resides.
 
 - Fill your Spotify `USERNAME`, `PASSWORD`, `CLIENT_ID` and `CLIENT_SECRET` in `.env` file (required for `SpotiPy` library)
 - Fill script settings in `config.json`
@@ -67,13 +68,12 @@ A virtual environment is only needed for the initial setup of the app for instal
 
 To switch account or sign-out of the app, you can simply delete `credentials.json` file which stores the current user session.
 
-## Upcoming features
+## Available options
 
-- CLI interface for running different operations
-- Save individual tracks
-- Provide a playlist URL directly in CLI without having to specify it in `config.json` first
-- Download user's Liked Songs playlist
-- Download unavailable tracks by changing region
+- Download your Liked Songs library
+- Download a single track
+- Download an individual playlist
+- Move unorganized downloaded songs to a playlist folder
 
 ## Other
 

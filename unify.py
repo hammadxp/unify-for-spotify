@@ -4,19 +4,22 @@ import json
 import math
 import time
 import ctypes
+import msvcrt
 import platform
 import unicodedata
 import requests
 import shutil
 import webbrowser
-from pathlib import Path
-from dotenv import load_dotenv
+
 from datetime import datetime, timedelta
+from dotenv import load_dotenv
+from pathlib import Path
+from send2trash import send2trash
+from tkinter import Tk, filedialog
 
 import ffmpy
 import music_tag
 import mutagen.id3
-from send2trash import send2trash
 
 import spotipy
 from spotipy import SpotifyException
@@ -46,11 +49,14 @@ class Unify:
 
     def init_state(self):
         # Sync info
-        self.source_type = ''
+        self.option_type = ''
         self.playlist_url = ''
         self.playlist_id = ''
+        self.track_url = ''
+        self.track_id = ''
         self.playlist_name = 'Liked Songs'
         self.local_playlist_folder = ''
+        self.source_folder = ''
 
         # Spotify tracks
         self.spotify_tracks_raw = []
@@ -256,23 +262,67 @@ class Unify:
 
     ######################################################
 
-    def prompt_sync_mode(self):
+    def prompt_option_selection(self):
+        options = [
+            {
+                "value": "track",
+                "label": "Download a single track",
+            },
+            {
+                "value": "playlist",
+                "label": "Download an individual playlist",
+            },
+            {
+                "value": "liked",
+                "label": "Download your Liked Songs library",
+            },
+            {
+                "value": "move_playlist_matches",
+                "label": "Move unorganized downloaded songs to a playlist folder",
+            },
+        ]
+
+        selected_index = 0
+
         while True:
-            print("")
-            print("1. Download your Liked Songs library")
-            print("2. Download an individual playlist")
-            choice = input("\nSelect an option (1 or 2): ").strip()
+            self.clear()
+            self.splash()
+            print("Use the Up/Down arrow keys and press Enter.\n")
 
-            if choice == '1':
-                self.source_type = 'liked'
-                self.playlist_name = 'Liked Songs'
+            for index, option in enumerate(options):
+                prefix = ">" if index == selected_index else " "
+                print(f"{prefix} {option['label']}")
+
+            key = msvcrt.getwch()
+
+            if key in ("\r", "\n"):
+                chosen_option = options[selected_index]
+                self.option_type = chosen_option["value"]
+
+                if self.option_type == "liked":
+                    self.playlist_name = "Liked Songs"
+
+                print()
                 return
 
-            if choice == '2':
-                self.source_type = 'playlist'
-                return
+            if key in ("\xe0", "\x00"):
+                direction = msvcrt.getwch()
 
-            print("\nPlease enter 1 or 2.\n")
+                if direction == "H":
+                    selected_index = (selected_index - 1) % len(options)
+                elif direction == "P":
+                    selected_index = (selected_index + 1) % len(options)
+
+    def prompt_track_url(self):
+        while True:
+            track_url = input("Paste the Spotify song URL: ").strip()
+            if track_url:
+                self.track_url = track_url
+                self.get_track_id()
+                if self.track_id:
+                    return
+
+            print("\nPlease provide a valid Spotify song URL.\n")
 
     def prompt_playlist_url(self):
         while True:
@@ -285,15 +335,30 @@ class Unify:
 
             print("\nPlease provide a valid Spotify playlist URL.\n")
 
-    def prompt_destination_folder(self):
+    def prompt_folder_selection(self, title):
         while True:
-            destination_folder = input(
-                "Enter the destination folder path: ").strip().strip('"')
-            if destination_folder:
-                self.local_playlist_folder = os.path.abspath(destination_folder)
-                return
+            folder = self.select_folder(title)
+            if folder:
+                return os.path.abspath(folder)
 
-            print("\nDestination folder is required.\n")
+            print("\nA folder selection is required.\n")
+
+    def prompt_destination_folder(self):
+        self.local_playlist_folder = self.prompt_folder_selection(
+            "Select the destination folder")
+
+    def prompt_source_folder(self):
+        self.source_folder = self.prompt_folder_selection(
+            "Select the source folder")
+
+    def select_folder(self, title):
+        root = Tk()
+        root.withdraw()
+        root.attributes("-topmost", True)
+        try:
+            return filedialog.askdirectory(title=title, mustexist=True)
+        finally:
+            root.destroy()
 
     def get_playlist_id(self):
         try:
@@ -307,6 +372,18 @@ class Unify:
             self.show_status(
                 f"ERROR: Bad playlist URL format. ({self.playlist_url})")
 
+    def get_track_id(self):
+        try:
+            if match := re.match(r"https://open\.spotify\.com/track/([^?]+)", self.track_url):
+                self.track_id = match.groups()[0]
+            else:
+                raise ValueError()
+
+        except ValueError:
+            self.track_id = ''
+            self.show_status(
+                f"ERROR: Bad track URL format. ({self.track_url})")
+
     def get_playlist_name(self):
         try:
             response = self.call_spotipy(
@@ -317,6 +394,18 @@ class Unify:
             self.playlist_name = f"Playlist {self.playlist_id}"
             self.show_status(
                 f"ERROR: Could not retrieve playlist name. ({e})")
+
+    def get_track_name(self):
+        try:
+            response = self.call_spotipy('track', self.track_id, market=self.config['region'])
+            title = response['name']
+            artist = ", ".join([artist['name'] for artist in response['artists']])
+            self.playlist_name = f"{title} - {artist}"
+
+        except Exception as e:
+            self.playlist_name = f"Track {self.track_id}"
+            self.show_status(
+                f"ERROR: Could not retrieve track name. ({e})")
 
     def create_local_playlist_folder(self):
         try:
@@ -331,8 +420,8 @@ class Unify:
 
     def get_spotify_tracks_raw(self):
         try:
-            print("Fetching playlist items...")
-            tracks_fetched = self.fetch_source_tracks()
+            print("Fetching items from Spotify...")
+            tracks_fetched = self.fetch_option_tracks()
 
             for track in tracks_fetched:
                 if not track.get('track'):
@@ -351,7 +440,7 @@ class Unify:
                 total_tracks = track['track']['album']['total_tracks']
                 track_number = track['track']['track_number']
                 release_date = track['track']['album']['release_date']
-                added_at = track['added_at']
+                added_at = track.get('added_at') or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
                 duration = track['track']['duration_ms']
                 track_url = track['track']['external_urls'].get(
                     'spotify', False)
@@ -407,9 +496,12 @@ class Unify:
 
         return True
 
-    def fetch_source_tracks(self):
-        if self.source_type == 'playlist':
+    def fetch_option_tracks(self):
+        if self.option_type in {'playlist', 'move_playlist_matches'}:
             return self.fetch_playlist_tracks()
+
+        if self.option_type == 'track':
+            return self.fetch_track()
 
         return self.fetch_liked_tracks()
 
@@ -435,18 +527,34 @@ class Unify:
 
         return tracks_fetched
 
-    def get_local_tracks_raw(self, root_folder=None):
+    def fetch_track(self):
+        response = self.call_spotipy('track', self.track_id, market=self.config['region'])
+        return [{
+            'added_at': datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ"),
+            'track': response,
+        }]
+
+    def get_local_tracks_raw(self, root_folder=None, max_depth=None):
         try:
             root_folder = root_folder or self.local_playlist_folder
+            root_folder = os.path.abspath(root_folder)
 
             for folder, subfolders, files in os.walk(root_folder):
+                # calculate depth
+                current_depth = folder[len(root_folder):].count(os.sep)
+
+                # max_depth: None (scan everything, all subfolders), 0 (only root folder), 1 (root + one level deep), 2 (root + 2 levels deep)
+
+                if max_depth is not None and current_depth >= max_depth:
+                    subfolders[:] = []  # stop deeper traversal
+
                 for file in files:
                     file_path = os.path.join(folder, file)
                     file_dir = folder
                     file_name = os.path.splitext(file)[0]
                     file_extension = os.path.splitext(file)[1][1:]
 
-                    if file_extension == self.config['download_format']:
+                    if file_extension.lower() == self.config['download_format'].lower():
                         music_file = music_tag.load_file(file_path)
 
                         tracktitle = str(music_file['tracktitle']).strip()
@@ -506,9 +614,25 @@ class Unify:
             round(track['duration'] / 1000)
         )
 
+    def sanitize_path_component(self, value, fallback="Library"):
+        sanitized = re.sub(r'[\\/*?:"<>|]', "", str(value or "")).strip()
+        return sanitized or fallback
+
+    def build_non_conflicting_path(self, destination_folder, file_name, file_extension):
+        candidate = os.path.join(destination_folder, f"{file_name}.{file_extension}")
+        if not os.path.exists(candidate):
+            return candidate
+
+        suffix = 1
+        while True:
+            candidate = os.path.join(
+                destination_folder, f"{file_name} ({suffix}).{file_extension}")
+            if not os.path.exists(candidate):
+                return candidate
+            suffix += 1
+
     def get_archive_folder(self):
-        source_folder_name = re.sub(
-            r'[\\/*?:"<>|]', "", self.playlist_name).strip() or "Library"
+        source_folder_name = self.sanitize_path_component(self.playlist_name)
         archive_folder = os.path.join(self.config["archive_folder"], source_folder_name)
         os.makedirs(archive_folder, exist_ok=True)
         return archive_folder
@@ -639,6 +763,67 @@ class Unify:
 
     def local_tracks_fix_filename(self):
         return
+
+    def move_playlist_matches(self):
+        self.init_progress_bars()
+
+        if not self.get_spotify_tracks_raw():
+            return False
+
+        self.spotify_tracks_remove_uploaded()
+        self.spotify_tracks_remove_unavailable()
+        self.spotify_tracks_remove_duplicate()
+
+        self.get_local_tracks_raw(self.source_folder, 0)
+
+        destination_folder = os.path.join(
+            self.source_folder,
+            self.sanitize_path_component(self.playlist_name, "Playlist")
+        )
+        os.makedirs(destination_folder, exist_ok=True)
+
+        moved_count = 0
+        skipped_count = 0
+        matched_paths = set()
+
+        with Live(self.progress_panel_alt):
+            for spotify_track in self.spotify_tracks_raw:
+                matched_local_track = next(
+                    (
+                        local_track for local_track in self.local_tracks_raw
+                        if local_track['file_path'] not in matched_paths and self.tracks_match(spotify_track, local_track)
+                    ),
+                    None
+                )
+
+                if not matched_local_track:
+                    continue
+
+                matched_paths.add(matched_local_track['file_path'])
+
+                if os.path.abspath(matched_local_track['file_dir']) == os.path.abspath(destination_folder):
+                    skipped_count += 1
+                    continue
+
+                destination_path = self.build_non_conflicting_path(
+                    destination_folder,
+                    matched_local_track['file_name'],
+                    matched_local_track['file_extension']
+                )
+
+                shutil.move(matched_local_track['file_path'], destination_path)
+                moved_count += 1
+
+            self.playlist_completed.update(
+                self.playlist_completed_id,
+                description=(
+                    f"[bold green]{self.playlist_name} move completed"
+                    f" | Moved: {moved_count} | Already there: {skipped_count}"
+                ),
+                visible=True
+            )
+
+        return True
 
     ######################################################
 
@@ -1009,6 +1194,15 @@ class Unify:
             if not os.path.exists(self.local_playlist_folder):
                 os.makedirs(self.local_playlist_folder)
 
+            if self.option_type == 'track' and os.path.exists(file_path_new):
+                file_name = Path(file_path_new).stem
+                file_extension = Path(file_path_new).suffix.lstrip('.')
+                file_path_new = self.build_non_conflicting_path(
+                    self.local_playlist_folder,
+                    file_name,
+                    file_extension
+                )
+
             shutil.move(file_path_old, file_path_new)
 
             self.metadata_progress.stop_task(self.metadata_progress_id)
@@ -1115,7 +1309,7 @@ class Unify:
         ctypes.windll.kernel32.SetConsoleTitleW(
             f"Unify Script by HammadXP | {text}")
 
-    def splash():
+    def splash(self):
         print("\n")
         print("=================================\n"
               "|                               |\n"
@@ -1125,7 +1319,7 @@ class Unify:
               "=================================")
         print("\n")
 
-    def clear():
+    def clear(self):
         if platform.system() == "Windows":
             os.system("cls")
         else:
