@@ -430,33 +430,38 @@ class Unify:
                 if track['track']['duration_ms'] == 0 or track['track']['is_local']:
                     continue
 
-                title = track['track']['name']
+                track_data = track['track']
+                title = track_data['name']
                 artist = ", ".join([artist['name']
-                                   for artist in track['track']['artists']])
-                album = track['track']['album']['name']
-                albumartist = track['track']['album']['artists'][0]['name']
+                                   for artist in track_data['artists']])
+                album = track_data['album']['name']
+                albumartist = track_data['album']['artists'][0]['name']
                 total_discs = 1
-                disc_number = track['track']['disc_number']
-                total_tracks = track['track']['album']['total_tracks']
-                track_number = track['track']['track_number']
-                release_date = track['track']['album']['release_date']
+                disc_number = track_data['disc_number']
+                total_tracks = track_data['album']['total_tracks']
+                track_number = track_data['track_number']
+                release_date = track_data['album']['release_date']
                 added_at = track.get('added_at') or datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-                duration = track['track']['duration_ms']
-                track_url = track['track']['external_urls'].get(
+                duration = track_data['duration_ms']
+                track_url = track_data['external_urls'].get(
                     'spotify', False)
-                track_uri = track['track']['uri']
-                track_id = track['track']['id']
+                track_uri = track_data['uri']
+                track_id = track_data['id']
+                linked_from = track_data.get('linked_from') or {}
+                linked_from_id = linked_from.get('id')
+                linked_from_uri = linked_from.get('uri')
+                match_track_ids, match_track_uris = self.get_track_aliases(track_data)
                 artist_ids = [artist['id']
-                              for artist in track['track']['artists']]
-                is_local = track['track']['is_local']
-                is_playable = track['track'].get('is_playable', True)
+                              for artist in track_data['artists']]
+                is_local = track_data['is_local']
+                is_playable = track_data.get('is_playable', True)
                 save_as = ''
 
                 # 'save_as' will be updated in 'spotify_tracks_fix_save_as' function
                 # 'is_playable' value is 'false' for unavailable tracks and 'None' for uploaded tracks
 
-                image = track['track']['album']['images'][0]
-                for i in track['track']['album']['images']:
+                image = track_data['album']['images'][0]
+                for i in track_data['album']['images']:
                     if i['width'] > image['width']:
                         image = i
                 image_url = image['url']
@@ -477,6 +482,10 @@ class Unify:
                     'track_url': track_url,
                     'track_uri': track_uri,
                     'track_id': track_id,
+                    'linked_from_id': linked_from_id,
+                    'linked_from_uri': linked_from_uri,
+                    'match_track_ids': match_track_ids,
+                    'match_track_uris': match_track_uris,
                     'artist_ids': artist_ids,
                     'is_local': is_local,
                     'is_playable': is_playable,
@@ -484,7 +493,7 @@ class Unify:
                 }
 
                 self.spotify_tracks_raw.append(spotify_track)
-                self.spotify_track_ids.add(spotify_track['track_id'])
+                self.spotify_track_ids.update(match_track_ids)
 
             # Older liked songs should download first.
             self.spotify_tracks_raw.sort(key=lambda a: a.get('added_at') or '')
@@ -563,7 +572,7 @@ class Unify:
                         album = str(music_file['album'])
                         track_uri = str(music_file['comment'])
                         track_id = str(music_file['comment']).split(":")[-1]
-                        # track_id = str(music_file['comment']).split(":")[-1] if len(str(music_file['comment']).split(":")) > 1 else ""
+                        match_track_ids, match_track_uris = self.get_local_track_aliases(track_uri, track_id)
                         duration = round(
                             float(str(music_file['#length'])) * 1000)
 
@@ -573,6 +582,8 @@ class Unify:
                             "album": album,
                             "track_uri": track_uri,
                             "track_id": track_id,
+                            "match_track_ids": match_track_ids,
+                            "match_track_uris": match_track_uris,
                             "duration": duration,
                             "file_path": file_path,
                             "file_dir": file_dir,
@@ -581,7 +592,7 @@ class Unify:
                         }
 
                         self.local_tracks_raw.append(local_track)
-                        self.local_track_ids.add(local_track['track_id'])
+                        self.local_track_ids.update(match_track_ids)
 
             # sort by title, but if titles are same then sort by artist
             self.local_tracks_raw.sort(key=lambda a: (
@@ -598,7 +609,52 @@ class Unify:
         normalized = re.sub(r'\s+', ' ', normalized)
         return normalized.strip().lower()
 
+    def get_track_aliases(self, track_data):
+        track_ids = set()
+        track_uris = set()
+
+        for candidate in (track_data, track_data.get('linked_from') or {}):
+            candidate_id = str(candidate.get('id') or '').strip()
+            candidate_uri = str(candidate.get('uri') or '').strip()
+
+            if candidate_id:
+                track_ids.add(candidate_id)
+
+            if candidate_uri:
+                track_uris.add(candidate_uri)
+
+        return track_ids, track_uris
+
+    def get_local_track_aliases(self, track_uri, track_id):
+        track_ids = set()
+        track_uris = set()
+
+        normalized_uri = str(track_uri or '').strip()
+        normalized_id = str(track_id or '').strip()
+
+        if normalized_uri:
+            track_uris.add(normalized_uri)
+
+        if normalized_id:
+            track_ids.add(normalized_id)
+
+        if normalized_uri.startswith('spotify:track:'):
+            track_ids.add(normalized_uri.split(':')[-1])
+
+        return track_ids, track_uris
+
     def tracks_match(self, spotify_track, local_track):
+        spotify_track_ids = spotify_track.get('match_track_ids') or {spotify_track.get('track_id')}
+        spotify_track_uris = spotify_track.get('match_track_uris') or {spotify_track.get('track_uri')}
+        local_track_ids = local_track.get('match_track_ids') or {local_track.get('track_id')}
+        local_track_uris = local_track.get('match_track_uris') or {local_track.get('track_uri')}
+
+        if spotify_track_ids & local_track_ids:
+            return True
+
+        if spotify_track_uris & local_track_uris:
+            return True
+
         return (
             self.normalize_text(spotify_track['title']) == self.normalize_text(local_track['title']) and
             self.normalize_text(spotify_track['artist']) == self.normalize_text(local_track['artist']) and
@@ -685,12 +741,15 @@ class Unify:
         checked_ids = set()
 
         for spotify_track in self.spotify_tracks_raw:
-            # for finding local tracks that have same ids
-            if spotify_track['track_id'] in checked_ids:
+            track_aliases = spotify_track.get('match_track_ids') or {spotify_track['track_id']}
+
+            # Treat relinked tracks as the same song if either the playable ID
+            # or the original linked_from ID has already been seen.
+            if checked_ids & track_aliases:
                 self.spotify_tracks_duplicate.append(spotify_track)
 
             else:
-                checked_ids.add(spotify_track['track_id'])
+                checked_ids.update(track_aliases)
 
         for item in self.spotify_tracks_duplicate:
             self.spotify_tracks_raw.remove(item)
@@ -1118,7 +1177,7 @@ class Unify:
             music_file['discnumber'] = spotify_track['disc_number']
             music_file['totaltracks'] = spotify_track['total_tracks']
             music_file['tracknumber'] = spotify_track['track_number']
-            music_file['comment'] = spotify_track['track_uri']
+            music_file['comment'] = spotify_track.get('linked_from_uri') or spotify_track['track_uri']
             music_file['composer'] = spotify_track['release_date']
             music_file['year'] = spotify_track['release_date'].split('-')[0]
             music_file['genre'] = self.newly_downloaded_track_genres
