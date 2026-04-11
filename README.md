@@ -1,85 +1,206 @@
-Unify is a python script for keeping a copy of your Spotify music collection locally and keeping it in sync.
+# Unify for Spotify
 
-The script can download Liked Songs, an individual playlist, or a single track. It can also organize existing local downloads by matching them against a Spotify playlist and moving matches into a playlist-named folder.
+Unify keeps a local copy of your Spotify music library and syncs it against Spotify when you run it again.
 
-## Features
+It supports:
 
-- Handles duplicate tracks that were added twice to the same playlist
-- Handles tracks with same title, or artist, or even both and rename files in such situations
-- Updates file modification date to match with the date when the track was added to the playlist
-- Keeps tracks in their respective folders based on the playlist name
-- Lets you choose folders with the system folder picker instead of typing paths
-- Includes an interactive option selector that works with arrow keys and Enter
+- Downloading a single track
+- Downloading a single playlist
+- Downloading your Liked Songs
+- Moving already-downloaded local files into a playlist-named folder by matching them against a Spotify playlist
 
-## Notes
+## What It Does
 
-- Any extra tracks present in playlist folder locally that are not present in Spotify playlist will be removed
-- Uploaded tracks will be ignored because they can't be recognized by `librespot-python`
-- The script has only been tested with MP3 files, on Windows with Python v3.10
+- Downloads audio stream from Spotify using your own account session
+- Writes metadata such as title, album, artist, cover art, genres, and lyrics
+- Renames conflicting files safely
+- Removes duplicates from the local library
+- Updates the file modified date to match the track's Spotify added date
+- Lets you run fully interactively or provide CLI arguments for automation
 
-\* you can modify the script to get around these hiccups
+## Important Notes
 
-## Setup
+- Uploaded/local-only Spotify tracks are skipped because they cannot be fetched through the current download flow
+- Extra files that do not match the Spotify playlist are safely removed from the destination library
+- Archive behavior is disabled by default
+- Temporary downloads are stored in `~/Unify Downloads` by default unless you override that path
+- This project is currently Windows-focused
 
-Make sure you have the following installed on your system:
+## For End Users
 
-- Python
-- pip
+If you are using the packaged `.exe`, you do not need to install Python.
 
-### Step 1: Clone the Repository
+### Before First Run
 
-- `git clone https://github.com/hammadxp/unify-for-spotify`
-- `cd unify-for-spotify`
+1. Download or place the `.exe` somewhere convenient.
+2. Create a `.env` file using the sample from [`example_files/.env`](https://github.com/hammadxp/unify-for-spotify/blob/main/example_files/.env).
+3. Fill in your Spotify API values:
 
-### Step 2: Fill credentials and config
+```env
+SPOTIFY_CLIENT_ID=""
+SPOTIFY_CLIENT_SECRET=""
+SPOTIFY_REDIRECT_URI="http://127.0.0.1:8888/callback"
+```
 
-Move `.env` and `config.json` files from `example_files` folder to the project root where `script.py` resides.
+4. Keep the `.env` file next to the `.exe`.
+5. Run the app once and complete the browser-based Spotify sign-in flow when prompted.
 
-- Fill your Spotify `USERNAME`, `PASSWORD`, `CLIENT_ID` and `CLIENT_SECRET` in `.env` file (required for `SpotiPy` library)
-- Fill script settings in `config.json`
+### Optional Config File
 
-### Step 3: Create a Virtual Environment
+If you want to provide configuration options through a file, create a JSON file anywhere on your PC and pass it with `--config-path`.
 
-- `python -m venv .venv`
+Example:
 
-This will create a virtual environment named `.venv` in the script directory.
+```json
+{
+  "region": "US",
+  "download_format": "mp3",
+  "download_quality": "high",
+  "transcode_bitrate": "auto",
+  "chunk_size": 20000,
+  "retry_attempts": 0,
+  "temp_download_folder": "C:\\Users\\{YourUserName}\\Unify Downloads"
+}
+```
 
-### Step 4: Activate the Virtual Environment
+### Default Behavior
 
-- `.venv\Scripts\activate`
+If you do not provide a config file, the app uses these built-in defaults:
 
-You should see the virtual environment's name in your shell prompt.
+- `region`: `US`
+- `download_format`: `mp3`
+- `download_quality`: `high`
+- `transcode_bitrate`: `auto`
+- `chunk_size`: `20000`
+- `retry_attempts`: `0`
+- `temp_download_folder`: `%USERPROFILE%\\Unify Downloads`
+- archive: disabled
 
-### Step 5: Install Dependencies
+### Running Interactively
 
-- `pip install -r requirements.txt`
+Launch the app without arguments:
 
-### Step 6: Run the Script
+```powershell
+unify.exe
+```
 
-- `python script.py`
+The app will prompt you for the option type and any missing folders or Spotify URLs.
 
-### Step 7: Deactivate the Virtual Environment
+### Running With Arguments
 
-When you're done, deactivate the virtual environment:
+Examples:
 
-- `deactivate`
+```powershell
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify"
+unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
+unify.exe --option-type track --track-url "https://open.spotify.com/track/..." --destination-folder "C:\Music\Singles"
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
+unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Unify Archive"
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --temp-download-folder "C:\Temp\Unify"
+```
 
-A virtual environment is only needed for the initial setup of the app for installing dependencies. Afterwards you can just run the script directly by double clicking `script.py`.
+### CLI Options
 
-To switch account or sign-out of the app, you can simply delete `credentials.json` file which stores the current user session.
+- `--option-type`: `track`, `playlist`, `liked`, or `move_playlist_matches`
+- `--track-url`: required for `track` mode unless you want to be prompted
+- `--playlist-url`: used for `playlist` and `move_playlist_matches`
+- `--destination-folder`: destination folder for downloads
+- `--source-folder`: source folder for `move_playlist_matches`
+- `--config-path`: optional path to a JSON config file
+- `--region`: Spotify market code used when reading track/playlist data
+- `--download-format`: `aac`, `fdk_aac`, `m4a`, `mp3`, `ogg`, `opus`, or `vorbis`
+- `--download-quality`: `normal` or `high`
+- `--transcode-bitrate`: bitrate preference for transcoded output
+- `--chunk-size`: download chunk size in bytes
+- `--retry-attempts`: retries for failed HTTP requests
+- `--temp-download-folder`: optional temp working folder; defaults to `%USERPROFILE%\\Unify Downloads`
+- `--enable-archive`: enables archiving for unmatched local files
+- `--archive-folder`: required when `--enable-archive` is used
 
-## Available options
+### Stored Files
 
-- Download your Liked Songs library
-- Download a single track
-- Download an individual playlist
-- Move unorganized downloaded songs to a playlist folder
+- `.env`: Spotify API credentials
+- `.cache-spotipy`: cached Spotify Web API token
+- `credentials.json`: cached librespot login session
 
-## Other
+Delete `credentials.json` if you want to sign in with a different Spotify account.
 
-- I'm not good at documenting stuff so apologies if something is not clear
-- I create scripts for fun that would help me automate my stuff and I occasionally share them on GitHub :)
+## For Developers
 
----
+### Requirements
 
-As always, if you have any features in mind, or something is not working, or you're stuck, let me know in Issues section, I will help you out! :smile:
+- Python 3.10+
+- `ffmpeg` available on your `PATH` if you want audio transcoding to work reliably
+- A Spotify app/client for obtaining API credentials
+
+### Setup
+
+1. Clone the repository.
+2. Create and activate a virtual environment.
+3. Install dependencies.
+4. Create a `.env` file from [`example_files/.env`](https://github.com/hammadxp/unify-for-spotify/blob/main/example_files/.env).
+5. Optionally copy or create a config JSON anywhere and pass it with `--config-path`.
+
+Commands:
+
+```powershell
+git clone https://github.com/hammadxp/unify-for-spotify
+cd unify-for-spotify
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+python main.py
+```
+
+### Example Developer Runs
+
+```powershell
+python main.py
+python main.py --option-type liked --destination-folder "C:\Music\Spotify"
+python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --config-path ".\example_files\config.json"
+python main.py --option-type liked --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"
+```
+
+### Packaging With PyInstaller
+
+A basic one-file build looks like this:
+
+```powershell
+pyinstaller --onefile --name unify main.py
+```
+
+If you ship the `.exe`, make sure end users also have access to:
+
+- `.env`
+- `ffmpeg` if your build/runtime setup requires it
+- any optional config JSON they want to use with `--config-path`
+
+### Project Entry Point
+
+- Main entry point: [`main.py`](https://github.com/hammadxp/unify-for-spotify/blob/main/main.py)
+- Core app logic: [`unify.py`](https://github.com/hammadxp/unify-for-spotify/blob/main/unify.py)
+- CLI definitions: [`cli_args.py`](https://github.com/hammadxp/unify-for-spotify/blob/main/cli_args.py)
+
+## Troubleshooting
+
+- If Spotify API auth fails, check the values in `.env`.
+- If the browser login does not complete, verify `SPOTIFY_REDIRECT_URI`.
+- If transcoding fails, install `ffmpeg` and make sure it is on your `PATH`.
+- If a supplied config path fails, verify that the file exists and contains valid JSON.
+- If archive mode is enabled, you must also provide `--archive-folder`.
+
+## Sample Files
+
+- Sample env: [`example_files/.env`](https://github.com/hammadxp/unify-for-spotify/blob/main/example_files/.env)
+- Sample config: [`example_files/config.json`](https://github.com/hammadxp/unify-for-spotify/blob/main/example_files/config.json)
+
+## Feedback
+
+If something breaks or you want a feature, open an issue and include:
+
+- the command you ran
+- whether you used the `.exe` or Python
+- whether you used `--config-path`
+- the relevant error message
+
+Built with love in Pakistan ❤️

@@ -1,4 +1,12 @@
 import argparse
+import os
+
+
+def normalize_cli_path(path_value):
+    if not path_value:
+        return None
+
+    return os.path.abspath(os.path.expanduser(path_value.strip().strip('"')))
 
 
 def parse_args():
@@ -53,15 +61,36 @@ def parse_args():
         help="Number of retry attempts for failed requests",
     )
     parser.add_argument(
+        "--config-path",
+        help="Optional path to a JSON config file with saved runtime settings",
+    )
+    parser.add_argument(
+        "--enable-archive",
+        action="store_true",
+        help="Archive unmatched local tracks instead of sending them to the recycle bin",
+    )
+    parser.add_argument(
         "--archive-folder",
-        help="Folder used for archiving replaced or removed tracks",
+        help="Folder used for archiving replaced or removed tracks (requires --enable-archive)",
     )
     parser.add_argument(
         "--temp-download-folder",
         help="Folder used for temporary download and transcode files",
     )
 
-    return parser.parse_args()
+    args = parser.parse_args()
+
+    args.config_path = normalize_cli_path(args.config_path)
+    args.archive_folder = normalize_cli_path(args.archive_folder)
+    args.temp_download_folder = normalize_cli_path(args.temp_download_folder)
+
+    if args.archive_folder and not args.enable_archive:
+        parser.error("--archive-folder requires --enable-archive.")
+
+    if args.enable_archive and not args.archive_folder:
+        parser.error("--enable-archive requires --archive-folder.")
+
+    return args
 
 
 def apply_config_overrides(app, args):
@@ -72,13 +101,15 @@ def apply_config_overrides(app, args):
         "transcode_bitrate": args.transcode_bitrate,
         "chunk_size": args.chunk_size,
         "retry_attempts": args.retry_attempts,
-        "archive_folder": args.archive_folder.strip().strip('"') if args.archive_folder else None,
-        "temp_download_folder": args.temp_download_folder.strip().strip('"') if args.temp_download_folder else None,
+        "temp_download_folder": args.temp_download_folder,
     }
 
     for key, value in config_overrides.items():
         if value is not None:
             app.config[key] = value
+
+    app.archive_enabled = args.enable_archive
+    app.config["archive_folder"] = args.archive_folder if args.enable_archive else None
 
 
 def configure_option(app, args):
@@ -129,7 +160,7 @@ def configure_destination_folder(app, args):
         return
 
     if args.destination_folder:
-        app.local_playlist_folder = args.destination_folder.strip().strip('"')
+        app.local_playlist_folder = normalize_cli_path(args.destination_folder)
         return
 
     app.prompt_destination_folder()
@@ -140,7 +171,7 @@ def configure_source_folder(app, args):
         return
 
     if args.source_folder:
-        app.source_folder = args.source_folder.strip().strip('"')
+        app.source_folder = normalize_cli_path(args.source_folder)
         return
 
     app.prompt_source_folder()

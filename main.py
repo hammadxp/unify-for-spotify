@@ -7,8 +7,7 @@ def main():
     app = Unify()
 
     app.create_spotipy_session()
-    app.load_config()
-    app.init_state()
+    app.load_config(args.config_path)
     configure_runtime_options(app, args)
 
     if app.option_type == "move_playlist_matches":

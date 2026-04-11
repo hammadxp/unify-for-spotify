@@ -47,7 +47,25 @@ class Unify:
     def __init__(self):
         self.init_state()
 
+    def get_default_temp_download_folder(self):
+        return os.path.join(str(Path.home()), "Unify Downloads")
+
+    def get_default_config(self):
+        return {
+            "region": "US",
+            "download_format": "mp3",
+            "download_quality": "high",
+            "transcode_bitrate": "auto",
+            "chunk_size": 20000,
+            "retry_attempts": 0,
+            "archive_folder": None,
+            "temp_download_folder": self.get_default_temp_download_folder(),
+        }
+
     def init_state(self):
+        self.config = self.get_default_config()
+        self.archive_enabled = False
+
         # Sync info
         self.option_type = ''
         self.playlist_url = ''
@@ -204,15 +222,35 @@ class Unify:
                 f"ERROR: Could not log in to librespot with OAuth. ({e})")
             raise
 
-    def load_config(self):
-        try:
-            with open('config.json', 'r') as config_file:
-                self.config = json.load(config_file)
-                print("config.json loaded.")
+    def load_config(self, config_path=None):
+        self.config = self.get_default_config()
 
-        except FileNotFoundError:
-            self.show_status(
-                "ERROR: Config file not found. Make sure cmd is opened in the Unify script's folder and config.json exists in that folder.")
+        if not config_path:
+            print("Using built-in default configuration.")
+            return
+
+        try:
+            with open(config_path, 'r', encoding='utf-8') as config_file:
+                loaded_config = json.load(config_file)
+
+            if not isinstance(loaded_config, dict):
+                raise ValueError("Config file must contain a JSON object.")
+
+            for key, value in loaded_config.items():
+                if key in self.config and value is not None:
+                    self.config[key] = value
+
+            for path_key in ("temp_download_folder", "archive_folder"):
+                if self.config.get(path_key):
+                    self.config[path_key] = os.path.abspath(
+                        os.path.expanduser(self.config[path_key]))
+
+            self.config["archive_folder"] = None
+            print(f"Config loaded from: {config_path}")
+
+        except FileNotFoundError as exc:
+            raise FileNotFoundError(
+                f"Config file not found: {config_path}") from exc
 
     def init_progress_bars(self):
         # CREATE PROGRESS BARS
@@ -688,10 +726,10 @@ class Unify:
             suffix += 1
 
     def get_archive_folder(self):
-        # source_folder_name = self.sanitize_path_component(self.playlist_name)
-        # archive_folder = os.path.join(self.config["archive_folder"], source_folder_name)
-
         archive_folder = self.config["archive_folder"]
+        if not archive_folder:
+            raise ValueError("Archive folder is not configured.")
+
         os.makedirs(archive_folder, exist_ok=True)
         return archive_folder
 
@@ -722,6 +760,16 @@ class Unify:
             pass
 
     ######################################################
+
+    def dispose_local_track(self, local_track):
+        if not os.path.exists(local_track['file_path']):
+            return
+
+        if self.archive_enabled:
+            self.archive_local_track(local_track)
+            return
+
+        send2trash(local_track['file_path'])
 
     def spotify_tracks_remove_uploaded(self):
         for spotify_track in self.spotify_tracks_raw:
@@ -801,7 +849,7 @@ class Unify:
 
             if not matched_spotify_track:
                 self.local_tracks_unmatched.append(local_track)
-                self.archive_local_track(local_track)
+                self.dispose_local_track(local_track)
 
         for item in self.local_tracks_unmatched:
             self.local_tracks_raw.remove(item)
@@ -923,7 +971,7 @@ class Unify:
                         "", visible=False)
 
                     self.playlist_progress.update(
-                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Archived: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
+                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Removed: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
 
                     # RUN TASKS
                     download_succeeded = self.downloader()
@@ -943,7 +991,7 @@ class Unify:
                         self.song_progress_id, description=f"[bold green]{spotify_track['title']} downloaded")
 
                     self.playlist_progress.update(
-                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Archived: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
+                        self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Removed: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
 
                 # PLAYLIST COMPLETED MESSAGE
                 self.playlist_progress.update(
