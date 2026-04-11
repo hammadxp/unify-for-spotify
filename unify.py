@@ -7,30 +7,29 @@ import ctypes
 import msvcrt
 import platform
 import unicodedata
-import requests
 import shutil
 import webbrowser
-
 from datetime import datetime, timedelta
-from dotenv import load_dotenv
 from pathlib import Path
-from send2trash import send2trash
 from tkinter import Tk, filedialog
 
 import ffmpy
 import music_tag
 import mutagen.id3
-
+import requests
 import spotipy
-from spotipy import SpotifyException
-from spotipy.oauth2 import SpotifyOAuth
+
+from dotenv import load_dotenv
 from librespot.core import Session
 from librespot.metadata import TrackId
 from librespot.audio.decoders import AudioQuality, VorbisOnlyAudioQuality
+from send2trash import send2trash
+from spotipy import SpotifyException
+from spotipy.oauth2 import SpotifyOAuth
 
 from rich.console import Group
-from rich.panel import Panel
 from rich.live import Live
+from rich.panel import Panel
 from rich.progress import (
     Progress,
     BarColumn,
