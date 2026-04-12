@@ -1,5 +1,6 @@
 from cli_args import configure_runtime_options, parse_args
 from unify import Unify
+from utils import pause_for_user
 
 
 def main():
@@ -14,7 +15,7 @@ def main():
         app.update_window_title("Move Playlist Matches")
         app.move_playlist_matches()
         app.update_window_title("Finished.")
-        input("\nFinished.")
+        pause_for_user()
         return
 
     app.login_to_librespot()
@@ -25,7 +26,7 @@ def main():
 
     if not app.get_spotify_tracks_raw():
         app.update_window_title("Failed.")
-        input("\nFailed.")
+        pause_for_user("\nFailed. Press Enter to exit.")
         return
 
     if app.option_type != "track":
@@ -49,7 +50,7 @@ def main():
 
     app.remove_temp_download_folder()
     app.update_window_title("Finished.")
-    input("\nFinished.")
+    pause_for_user()
 
 
 if __name__ == "__main__":

@@ -91,12 +91,12 @@ The app will prompt you for the option type and any missing folders or Spotify U
 Examples:
 
 ```powershell
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify"
-unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
 unify.exe --option-type track --track-url "https://open.spotify.com/track/..." --destination-folder "C:\Music\Singles"
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
+unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Unify Archive"
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify"
 unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --temp-download-folder "C:\Temp\Unify"
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
 ```
 
 ### CLI Options
@@ -156,8 +156,8 @@ python main.py
 
 ```powershell
 python main.py
-python main.py --option-type liked --destination-folder "C:\Music\Spotify"
 python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --config-path ".\example_files\config.json"
+python main.py --option-type liked --destination-folder "C:\Music\Spotify"
 python main.py --option-type liked --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"
 ```
 

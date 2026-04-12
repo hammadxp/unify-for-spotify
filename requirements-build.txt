@@ -1,0 +1,2 @@
+# Optional: packaging only (not required to run from source)
+pyinstaller>=6.0,<7

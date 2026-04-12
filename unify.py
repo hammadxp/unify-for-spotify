@@ -1,18 +1,20 @@
+# Built-in
 import os
 import re
 import json
 import math
+import sys
 import time
 import ctypes
-import msvcrt
 import platform
 import unicodedata
 import shutil
 import webbrowser
-from datetime import datetime, timedelta
+from datetime import datetime, timezone
 from pathlib import Path
 from tkinter import Tk, filedialog
 
+# 3rd-party
 import ffmpy
 import music_tag
 import mutagen.id3
@@ -40,6 +42,61 @@ from rich.progress import (
     TransferSpeedColumn,
     TimeRemainingColumn
 )
+
+VALID_DOWNLOAD_FORMATS = frozenset({"mp3", "m4a", "ogg", "opus"})
+LEGACY_DOWNLOAD_FORMAT_ALIASES = {
+    "aac": "m4a",
+    "fdk_aac": "m4a",
+    "vorbis": "ogg",
+}
+
+
+def normalize_download_format(value):
+    if value is None:
+        return None
+
+    key = str(value).lower().strip()
+    key = LEGACY_DOWNLOAD_FORMAT_ALIASES.get(key, key)
+
+    return key if key in VALID_DOWNLOAD_FORMATS else None
+
+
+def read_interactive_menu_key():
+    """Return 'up', 'down', 'enter', or None for an unsupported key."""
+    if platform.system() == "Windows":
+        import msvcrt
+
+        key = msvcrt.getwch()
+        if key in ("\r", "\n"):
+            return "enter"
+        if key in ("\x00", "\xe0"):
+            direction = msvcrt.getwch()
+            if direction == "H":
+                return "up"
+            if direction == "P":
+                return "down"
+        return None
+
+    import termios
+    import tty
+
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        ch = sys.stdin.read(1)
+        if ch == "\x1b":
+            ch += sys.stdin.read(2)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+
+    if ch in ("\n", "\r"):
+        return "enter"
+    if ch == "\x1b[A":
+        return "up"
+    if ch == "\x1b[B":
+        return "down"
+    return None
 
 
 class Unify:
@@ -108,6 +165,9 @@ class Unify:
         # Progress
         self.completed_index = 0
         self.progress_bar_text = ''
+
+        # Other
+        self.set_file_mtime_from_added_at = False
 
     def show_status(self, message):
         if hasattr(self, 'status_bar') and hasattr(self, 'status_bar_id'):
@@ -239,6 +299,18 @@ class Unify:
                 if key in self.config and value is not None:
                     self.config[key] = value
 
+            normalized_format = normalize_download_format(
+                self.config.get("download_format"))
+            if normalized_format:
+                if str(self.config.get("download_format", "")).lower().strip() not in VALID_DOWNLOAD_FORMATS:
+                    print(
+                        f"Note: config download_format was mapped to '{normalized_format}' (supported: {', '.join(sorted(VALID_DOWNLOAD_FORMATS))}).")
+                self.config["download_format"] = normalized_format
+            else:
+                print(
+                    f"Warning: invalid download_format in config; using 'mp3'.")
+                self.config["download_format"] = "mp3"
+
             for path_key in ("temp_download_folder", "archive_folder"):
                 if self.config.get(path_key):
                     self.config[path_key] = os.path.abspath(
@@ -285,17 +357,26 @@ class Unify:
         self.playlist_completed_id = self.playlist_completed.add_task(
             "", visible=False)
 
-        # PROGRESS PANEL
+        # One row each: re-used every track so the live view does not grow without bound
+        self.song_progress_id = self.song_progress.add_task("Preparing…")
+        self.download_progress_id = self.download_progress.add_task("", total=None, visible=False)
+        self.metadata_progress_id = self.metadata_progress.add_task("", visible=False)
+
+        # PROGRESS PANEL (status_bar last so messages stay at the bottom of the live view)
         self.progress_panel = Panel(
             Group(
+                Panel(Group(self.song_progress, self.download_progress, self.metadata_progress)),
+                Panel(Group(self.playlist_progress, self.playlist_completed)),
                 self.status_bar,
-                Panel(Group(self.song_progress,
-                      self.download_progress, self.metadata_progress)),
-                Panel(Group(self.playlist_progress, self.playlist_completed))
             )
         )
 
-        self.progress_panel_alt = Panel(self.playlist_completed)
+        self.progress_panel_alt = Panel(
+            Group(
+                self.playlist_completed,
+                self.status_bar,
+            )
+        )
 
     ######################################################
 
@@ -330,9 +411,9 @@ class Unify:
                 prefix = ">" if index == selected_index else " "
                 print(f"{prefix} {option['label']}")
 
-            key = msvcrt.getwch()
+            key = read_interactive_menu_key()
 
-            if key in ("\r", "\n"):
+            if key == "enter":
                 chosen_option = options[selected_index]
                 self.option_type = chosen_option["value"]
 
@@ -342,13 +423,10 @@ class Unify:
                 print()
                 return
 
-            if key in ("\xe0", "\x00"):
-                direction = msvcrt.getwch()
-
-                if direction == "H":
-                    selected_index = (selected_index - 1) % len(options)
-                elif direction == "P":
-                    selected_index = (selected_index + 1) % len(options)
+            if key == "up":
+                selected_index = (selected_index - 1) % len(options)
+            elif key == "down":
+                selected_index = (selected_index + 1) % len(options)
 
     def prompt_track_url(self):
         while True:
@@ -391,7 +469,10 @@ class Unify:
     def select_folder(self, title):
         root = Tk()
         root.withdraw()
-        root.attributes("-topmost", True)
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
         try:
             return filedialog.askdirectory(title=title, mustexist=True)
         finally:
@@ -894,7 +975,7 @@ class Unify:
         skipped_count = 0
         matched_paths = set()
 
-        with Live(self.progress_panel_alt):
+        with Live(self.progress_panel_alt, refresh_per_second=10):
             for spotify_track in self.spotify_tracks_raw:
                 matched_local_track = next(
                     (
@@ -955,28 +1036,27 @@ class Unify:
 
     def download_handler(self):
         if self.spotify_tracks_to_download:
-            with Live(self.progress_panel):
+            with Live(self.progress_panel, refresh_per_second=10):
                 for spotify_track in self.spotify_tracks_to_download:
                     self.currently_downloading_track = spotify_track
 
-                    # INITIALIZE SONG PROGRESS
-                    self.status_bar_id = self.status_bar.add_task(
-                        "", visible=False)
-                    self.song_progress_id = self.song_progress.add_task(
-                        f"{spotify_track['title']} is downloading")
-                    self.download_progress_id = self.download_progress.add_task(
-                        "Initializing")
-                    self.metadata_progress_id = self.metadata_progress.add_task(
-                        "", visible=False)
+                    self.status_bar.update(self.status_bar_id, description="", visible=False)
+                    self.song_progress.update(
+                        self.song_progress_id,
+                        description=f"{spotify_track['title']} is downloading")
+                    self.metadata_progress.update(self.metadata_progress_id, visible=False)
 
                     self.playlist_progress.update(
                         self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Removed: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
 
                     # RUN TASKS
                     download_succeeded = self.downloader()
+
                     if download_succeeded:
-                        self.change_modification_date_to_added_date()
+                        if self.set_file_mtime_from_added_at:
+                            self.change_modification_date_to_added_date()
                         self.move_downloaded_track()
+
                     self.newly_downloaded_track_genres = ''
                     self.newly_downloaded_track_lyrics = ''
                     self.completed_index += 1
@@ -985,9 +1065,14 @@ class Unify:
                     self.metadata_progress.update(
                         self.metadata_progress_id, visible=False)
 
-                    self.song_progress.stop_task(self.song_progress_id)
                     self.song_progress.update(
-                        self.song_progress_id, description=f"[bold green]{spotify_track['title']} downloaded")
+                        self.song_progress_id,
+                        description=(
+                            f"[bold green]{spotify_track['title']} downloaded"
+                            if download_succeeded
+                            else f"[bold red]{spotify_track['title']} failed"
+                        ),
+                    )
 
                     self.playlist_progress.update(
                         self.playlist_progress_id, description=f"{self.playlist_name} | Total Songs: {len(self.spotify_tracks_raw)} | To Download: {len(self.spotify_tracks_to_download) - self.completed_index} | Removed: {len(self.local_tracks_unmatched) + len(self.local_tracks_duplicate)} |")
@@ -999,7 +1084,7 @@ class Unify:
                     self.playlist_completed_id, description=f"[bold green]{self.playlist_name} sync completed", visible=True)
 
         else:
-            with Live(self.progress_panel_alt):
+            with Live(self.progress_panel_alt, refresh_per_second=10):
                 self.playlist_completed.update(
                     self.playlist_completed_id, description=f"[bold green]{self.playlist_name} sync completed", visible=True)
 
@@ -1057,25 +1142,36 @@ class Unify:
                                                                   False, None)
 
             stream_size = stream.input_stream.size
-            downloaded = 0
+            stream_iter = stream.input_stream.stream()
+
+            total_for_bar = stream_size if stream_size and stream_size > 0 else None
+            if hasattr(self.download_progress, "reset"):
+                self.download_progress.reset(
+                    self.download_progress_id,
+                    total=total_for_bar,
+                    completed=0,
+                    visible=True,
+                    description="Downloading audio stream",
+                )
+            else:
+                self.download_progress.update(
+                    self.download_progress_id,
+                    total=total_for_bar,
+                    completed=0,
+                    visible=True,
+                    description="Downloading audio stream",
+                )
 
             with open(self.temp_download_file, 'wb') as file:
-                b = 0
-                while b < 5:
-                    chunk = stream.input_stream.stream().read(
-                        self.config['chunk_size'])
+                while True:
+                    chunk = stream_iter.read(self.config['chunk_size'])
+                    if not chunk:
+                        break
                     file.write(chunk)
-
                     self.download_progress.update(
                         self.download_progress_id,
-                        description="Downloading audio stream",
-                        total=stream_size,
-                        advance=len(chunk)
+                        advance=len(chunk),
                     )
-                    self.download_progress.stop_task(self.download_progress_id)
-
-                    downloaded += len(chunk)
-                    b += 1 if chunk == b'' else 0
 
             self.download_progress.update(
                 self.download_progress_id, visible=False)
@@ -1093,13 +1189,10 @@ class Unify:
                 self.metadata_progress_id, description="Transcoding audio", visible=True)
 
             codecs = {
-                'aac': 'aac',
-                'fdk_aac': 'libfdk_aac',
                 'm4a': 'aac',
                 'mp3': 'libmp3lame',
                 'ogg': 'copy',
                 'opus': 'libopus',
-                'vorbis': 'copy',
             }
 
             bitrates = {
@@ -1107,10 +1200,9 @@ class Unify:
                 'high': '160k',
             }
 
-            file_codec = codecs.get(self.config['download_format'], 'copy')
+            file_codec = codecs[self.config['download_format']]
 
             if file_codec != 'copy':
-                bitrate = self.config['transcode_bitrate']
                 bitrate = bitrates[self.config['download_quality']]
             else:
                 bitrate = None
@@ -1118,6 +1210,8 @@ class Unify:
             output_params = ['-c:a', file_codec]
             if bitrate:
                 output_params += ['-b:a', bitrate]
+            if self.config['download_format'] == 'm4a':
+                output_params += ['-movflags', '+faststart']
 
             try:
                 ffmpy_method = ffmpy.FFmpeg(
@@ -1271,19 +1365,17 @@ class Unify:
             return False
 
     def change_modification_date_to_added_date(self):
+        if not self.set_file_mtime_from_added_at:
+            return
+
         try:
-            self.metadata_progress.update(
-                self.metadata_progress_id, description="Updating modification date")
+            self.metadata_progress.update(self.metadata_progress_id, description="Updating modification date", visible=True)
 
             timestamp_raw = self.currently_downloading_track['added_at']
-            timestamp = datetime.strptime(timestamp_raw, "%Y-%m-%dT%H:%M:%SZ")
-            timestamp_adjusted = timestamp + timedelta(hours=5)
-            timestamp_epoch = timestamp_adjusted.timestamp()
-            mdate_P1 = timestamp_adjusted.strftime("%Y-%m-%d")
-            mdate_P2 = timestamp_adjusted.strftime("%Y-%m-%d %H:%M:%S")
+            ts_utc = datetime.strptime(timestamp_raw, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            timestamp_epoch = ts_utc.timestamp()
 
-            os.utime(self.temp_transcode_file,
-                     (timestamp_epoch, timestamp_epoch))
+            os.utime(self.temp_transcode_file, (timestamp_epoch, timestamp_epoch))
 
             self.metadata_progress.stop_task(self.metadata_progress_id)
 
@@ -1414,8 +1506,13 @@ class Unify:
         return size_formatted
 
     def update_window_title(self, text):
-        ctypes.windll.kernel32.SetConsoleTitleW(
-            f"Unify Script by HammadXP | {text}")
+        if platform.system() != "Windows":
+            return
+        try:
+            ctypes.windll.kernel32.SetConsoleTitleW(
+                f"Unify Script by HammadXP | {text}")
+        except Exception:
+            pass
 
     def splash(self):
         print("\n")

@@ -38,8 +38,8 @@ def parse_args():
     )
     parser.add_argument(
         "--download-format",
-        choices=["aac", "fdk_aac", "m4a", "mp3", "ogg", "opus", "vorbis"],
-        help="Output audio format",
+        choices=["mp3", "m4a", "ogg", "opus"],
+        help="Output container/codec: mp3 (MP3), m4a (AAC), ogg (Vorbis remux), opus (Opus transcode)",
     )
     parser.add_argument(
         "--download-quality",
@@ -77,6 +77,11 @@ def parse_args():
         "--temp-download-folder",
         help="Folder used for temporary download and transcode files",
     )
+    parser.add_argument(
+        "--set-file-mtime-from-added-at",
+        action="store_true",
+        help="Set each file's modification time from the track's Spotify added_at time (UTC, displayed in your local timezone). Off by default.",
+    )
 
     args = parser.parse_args()
 
@@ -107,6 +112,8 @@ def apply_config_overrides(app, args):
     for key, value in config_overrides.items():
         if value is not None:
             app.config[key] = value
+
+    app.set_file_mtime_from_added_at = args.set_file_mtime_from_added_at
 
     app.archive_enabled = args.enable_archive
     app.config["archive_folder"] = args.archive_folder if args.enable_archive else None
