@@ -7,7 +7,26 @@ permissions:
   contents: write
 
 jobs:
+  # JOB 1: Create version tag (ONLY ONCE)
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      new_tag: ${{ steps.tagger.outputs.new_tag }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Bump version
+        id: tagger
+        uses: mathieudutour/github-tag-action@v6.1
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch # v1.0.3 -> v1.0.4
+
+  # JOB 2: Build for all OS
   build:
+    needs: version
+
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -17,12 +36,6 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
-
-      - name: Auto bump version + create tag
-        id: tagger
-        uses: mathieudutour/github-tag-action@v6.1
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -37,25 +50,38 @@ jobs:
       - name: Build
         run: pyinstaller --onefile --name unify --clean main.py
 
+      # rename files so they don't overwrite each other
+      - name: Rename output
+        run: |
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            mv dist/unify.exe dist/unify-windows.exe
+          elif [ "$RUNNER_OS" = "macOS" ]; then
+            mv dist/unify dist/unify-macos
+          else
+            mv dist/unify dist/unify-linux
+          fi
+        shell: bash
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: build-${{ matrix.os }}
           path: dist/*
 
+  # JOB 3: Create release (ONLY ONCE)
   release:
-    needs: build # waits for all builds
+    needs: [version, build]
 
     runs-on: ubuntu-latest
 
     steps:
-      - name: Download all artifacts
+      - name: Download artifacts
         uses: actions/download-artifact@v4
 
-      - name: Create Release + Upload
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v${{ github.run_number }}
+          tag_name: ${{ needs.version.outputs.new_tag }}
           files: |
             **/*
         env:
