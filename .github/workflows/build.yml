@@ -7,7 +7,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build:
     runs-on: ${{ matrix.os }}
 
     strategy:
@@ -37,10 +37,26 @@ jobs:
       - name: Build
         run: pyinstaller --onefile --name unify --clean main.py
 
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.os }}
+          path: dist/*
+
+  release:
+    needs: build # waits for all builds
+
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
       - name: Create Release + Upload
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ steps.tagger.outputs.new_tag }}
-          files: dist/*
+          tag_name: v${{ github.run_number }}
+          files: |
+            **/*
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
