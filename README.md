@@ -21,7 +21,7 @@ It supports:
 ## Important Notes
 
 - Uploaded/local-only Spotify tracks are skipped because they cannot be fetched through the current download flow
-- Extra files that do not match the Spotify playlist are safely removed from the destination library
+- Extra files that do not match the Spotify source are safely removed during full-library syncs such as playlists and `liked_no_cache`
 - Archive behavior is disabled by default
 - Temporary downloads are stored in `~/Unify Downloads` by default unless you override that path
 - This project is currently Windows-focused
@@ -43,11 +43,12 @@ SPOTIFY_REDIRECT_URI="http://127.0.0.1:8888/callback"
 ```
 
 4. Keep the `.env` file next to the `.exe`.
-5. Run the app once and complete the browser-based Spotify sign-in flow when prompted.
+5. Optionally place a `config.json` next to the `.exe` if you want it to be picked up automatically.
+6. Run the app once and complete the browser-based Spotify sign-in flow when prompted.
 
 ### Optional Config File
 
-If you want to provide configuration options through a file, create a JSON file anywhere on your PC and pass it with `--config-path`.
+If `config.json` exists next to `unify.exe`, it is loaded automatically. You can also keep a config file anywhere on your PC and pass it with `--config-path`.
 
 Example:
 
@@ -76,6 +77,8 @@ If you do not provide a config file, the app uses these built-in defaults:
 - `temp_download_folder`: `%USERPROFILE%\\Unify Downloads`
 - archive: disabled
 
+If a config file is present, only the keys you explicitly set override these defaults. Missing keys continue using the built-in defaults.
+
 ### Running Interactively
 
 Launch the app without arguments:
@@ -95,13 +98,17 @@ unify.exe --option-type track --track-url "https://open.spotify.com/track/..." -
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Unify Archive"
 unify.exe --option-type liked --destination-folder "C:\Music\Spotify"
+unify.exe --option-type liked_no_cache --destination-folder "C:\Music\Spotify"
 unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --temp-download-folder "C:\Temp\Unify"
 unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
+unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
 ```
 
 ### CLI Options
 
-- `--option-type`: `track`, `playlist`, `liked`, or `move_playlist_matches`
+- `--option-type`: `track`, `playlist`, `liked`, `liked_no_cache`, or `move_playlist_matches`
+- `liked`: incremental Liked Songs sync; after the first full fetch for a destination folder, later runs only request newer liked tracks
+- `liked_no_cache`: full Liked Songs library fetch every run
 - `--track-url`: required for `track` mode unless you want to be prompted
 - `--playlist-url`: used for `playlist` and `move_playlist_matches`
 - `--destination-folder`: destination folder for downloads
@@ -116,12 +123,14 @@ unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-p
 - `--temp-download-folder`: optional temp working folder; defaults to `%USERPROFILE%\\Unify Downloads`
 - `--enable-archive`: enables archiving for unmatched local files
 - `--archive-folder`: required when `--enable-archive` is used
+- `--set-file-mtime-from-added-at`: sets each downloaded file's modified time from Spotify's `added_at` timestamp
 
 ### Stored Files
 
 - `.env`: Spotify API credentials
 - `.cache-spotipy`: cached Spotify Web API token
 - `credentials.json`: cached librespot login session
+- `unify-state.json`: incremental liked-songs scan state keyed by destination folder
 
 Delete `credentials.json` if you want to sign in with a different Spotify account.
 
@@ -139,7 +148,7 @@ Delete `credentials.json` if you want to sign in with a different Spotify accoun
 2. Create and activate a virtual environment.
 3. Install dependencies.
 4. Create a `.env` file from [`example_files/.env`](https://github.com/hammadxp/unify-for-spotify/blob/main/example_files/.env).
-5. Optionally copy or create a config JSON anywhere and pass it with `--config-path`.
+5. Optionally copy or create a config JSON anywhere and pass it with `--config-path`, or keep `config.json` beside the app for automatic loading.
 
 Commands:
 
@@ -158,7 +167,9 @@ python main.py
 python main.py
 python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --config-path ".\example_files\config.json"
 python main.py --option-type liked --destination-folder "C:\Music\Spotify"
+python main.py --option-type liked_no_cache --destination-folder "C:\Music\Spotify"
 python main.py --option-type liked --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"
+python main.py --option-type liked --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
 ```
 
 ### Packaging With PyInstaller
@@ -173,7 +184,7 @@ If you ship the `.exe`, make sure end users also have access to:
 
 - `.env`
 - `ffmpeg` if your build/runtime setup requires it
-- any optional config JSON they want to use with `--config-path`
+- any optional config JSON they want to use with `--config-path` or place beside the `.exe` as `config.json`
 
 ### Project Entry Point
 
@@ -184,6 +195,7 @@ If you ship the `.exe`, make sure end users also have access to:
 ## Troubleshooting
 
 - If Spotify API auth fails, check the values in `.env`.
+- If you run `unify.exe` directly from `cmd`, keep `.env`, `config.json`, `.cache-spotipy`, `credentials.json`, and `unify-state.json` beside the `.exe` if you want them shared by that build.
 - If the browser login does not complete, verify `SPOTIFY_REDIRECT_URI`.
 - If transcoding fails, install `ffmpeg` and make sure it is on your `PATH`.
 - If a supplied config path fails, verify that the file exists and contains valid JSON.

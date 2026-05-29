@@ -20,6 +20,7 @@ def main():
 
     app.login_to_librespot()
     app.create_local_playlist_folder()
+    app.prepare_runtime_state()
 
     app.update_window_title(app.playlist_name)
     app.init_progress_bars()
@@ -46,7 +47,10 @@ def main():
         app.spotify_tracks_fix_save_as()
         app.spotify_tracks_to_download = list(app.spotify_tracks_raw)
 
-    app.download_handler()
+    sync_succeeded = app.download_handler()
+
+    if sync_succeeded:
+        app.remember_liked_tracks_scan_timestamp()
 
     app.remove_temp_download_folder()
     app.update_window_title("Finished.")

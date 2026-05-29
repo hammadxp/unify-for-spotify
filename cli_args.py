@@ -13,8 +13,8 @@ def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--option-type",
-        choices=["track", "playlist", "liked", "move_playlist_matches"],
-        help="Option type: liked, playlist, track, or move_playlist_matches",
+        choices=["track", "playlist", "liked", "liked_no_cache", "move_playlist_matches"],
+        help="Option type: liked, liked_no_cache, playlist, track, or move_playlist_matches",
     )
     parser.add_argument(
         "--playlist-url",
@@ -125,6 +125,8 @@ def configure_option(app, args):
 
         if app.option_type == "liked":
             app.playlist_name = "Liked Songs"
+        elif app.option_type == "liked_no_cache":
+            app.playlist_name = "Liked Songs (No Cache)"
         return
 
     app.prompt_option_selection()
@@ -163,7 +165,7 @@ def configure_playlist(app, args):
 
 
 def configure_destination_folder(app, args):
-    if app.option_type not in {"track", "playlist", "liked"}:
+    if app.option_type not in {"track", "playlist", "liked", "liked_no_cache"}:
         return
 
     if args.destination_folder:

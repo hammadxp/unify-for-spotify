@@ -103,6 +103,14 @@ class Unify:
     def __init__(self):
         self.init_state()
 
+    def get_runtime_base_folder(self):
+        if getattr(sys, "frozen", False):
+            return os.path.dirname(os.path.abspath(sys.executable))
+        return os.path.dirname(os.path.abspath(__file__))
+
+    def get_runtime_file_path(self, *parts):
+        return os.path.join(self.get_runtime_base_folder(), *parts)
+
     def get_default_temp_download_folder(self):
         return os.path.join(str(Path.home()), "Unify Downloads")
 
@@ -119,6 +127,7 @@ class Unify:
         }
 
     def init_state(self):
+        self.runtime_base_folder = self.get_runtime_base_folder()
         self.config = self.get_default_config()
         self.archive_enabled = False
 
@@ -168,6 +177,10 @@ class Unify:
 
         # Other
         self.set_file_mtime_from_added_at = False
+        self.did_partial_library_scan = False
+        self.liked_tracks_cache_state = {}
+        self.current_liked_tracks_cache_key = None
+        self.current_liked_tracks_latest_added_at = None
 
     def show_status(self, message):
         if hasattr(self, 'status_bar') and hasattr(self, 'status_bar_id'):
@@ -178,7 +191,7 @@ class Unify:
 
     def create_spotipy_session(self, verbose=True):
         try:
-            load_dotenv()
+            load_dotenv(self.get_runtime_file_path(".env"))
 
             client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
             client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip()
@@ -194,7 +207,7 @@ class Unify:
                 client_secret=client_secret,
                 redirect_uri=redirect_uri,
                 scope=scope,
-                cache_path=".cache-spotipy",
+                cache_path=self.get_runtime_file_path(".cache-spotipy"),
                 open_browser=True
             )
 
@@ -255,9 +268,14 @@ class Unify:
 
     def login_to_librespot(self):
         # check if the user has already logged in to librespot with their Spotify credentials, if so, retrieve session details from that file
-        if os.path.isfile("credentials.json"):
+        stored_credentials_path = self.get_runtime_file_path("credentials.json")
+        session_config = Session.Configuration.Builder().set_stored_credential_file(
+            stored_credentials_path
+        ).build()
+
+        if os.path.isfile(stored_credentials_path):
             try:
-                self.librespot_session = Session.Builder().stored_file().create()
+                self.librespot_session = Session.Builder(session_config).stored_file(stored_credentials_path).create()
                 print("librespot user session activated.")
                 return
             except Exception:
@@ -273,7 +291,7 @@ class Unify:
                     pass
 
             print("librespot user session created.")
-            self.librespot_session = Session.Builder().oauth(auth_url_callback).create()
+            self.librespot_session = Session.Builder(session_config).oauth(auth_url_callback).create()
             return
 
         except Exception as e:
@@ -283,6 +301,11 @@ class Unify:
 
     def load_config(self, config_path=None):
         self.config = self.get_default_config()
+
+        if not config_path:
+            default_config_path = self.get_runtime_file_path("config.json")
+            if os.path.isfile(default_config_path):
+                config_path = default_config_path
 
         if not config_path:
             print("Using built-in default configuration.")
@@ -322,6 +345,71 @@ class Unify:
         except FileNotFoundError as exc:
             raise FileNotFoundError(
                 f"Config file not found: {config_path}") from exc
+
+    def get_state_file_path(self):
+        return self.get_runtime_file_path("unify-state.json")
+
+    def load_state(self):
+        state_path = self.get_state_file_path()
+
+        if not os.path.isfile(state_path):
+            self.liked_tracks_cache_state = {}
+            return
+
+        try:
+            with open(state_path, "r", encoding="utf-8") as state_file:
+                loaded_state = json.load(state_file)
+
+            liked_state = loaded_state.get("liked_tracks_last_scan", {})
+            self.liked_tracks_cache_state = liked_state if isinstance(liked_state, dict) else {}
+        except Exception:
+            self.liked_tracks_cache_state = {}
+
+    def save_state(self):
+        state_path = self.get_state_file_path()
+        payload = {
+            "liked_tracks_last_scan": self.liked_tracks_cache_state
+        }
+
+        with open(state_path, "w", encoding="utf-8") as state_file:
+            json.dump(payload, state_file, indent=2)
+
+    def get_liked_tracks_cache_key(self):
+        destination = os.path.abspath(self.local_playlist_folder or "")
+        return destination.lower()
+
+    def get_last_liked_tracks_scan_timestamp(self):
+        if not self.current_liked_tracks_cache_key:
+            return None
+
+        raw_timestamp = self.liked_tracks_cache_state.get(self.current_liked_tracks_cache_key)
+        if not raw_timestamp:
+            return None
+
+        try:
+            datetime.strptime(raw_timestamp, "%Y-%m-%dT%H:%M:%SZ")
+        except ValueError:
+            return None
+
+        return raw_timestamp
+
+    def remember_liked_tracks_scan_timestamp(self):
+        if self.option_type != "liked":
+            return
+
+        if not self.current_liked_tracks_cache_key or not self.current_liked_tracks_latest_added_at:
+            return
+
+        self.liked_tracks_cache_state[self.current_liked_tracks_cache_key] = self.current_liked_tracks_latest_added_at
+        self.save_state()
+
+    def prepare_runtime_state(self):
+        self.load_state()
+
+        if self.option_type == "liked":
+            self.current_liked_tracks_cache_key = self.get_liked_tracks_cache_key()
+        else:
+            self.current_liked_tracks_cache_key = None
 
     def init_progress_bars(self):
         # CREATE PROGRESS BARS
@@ -392,7 +480,11 @@ class Unify:
             },
             {
                 "value": "liked",
-                "label": "Download your Liked Songs library",
+                "label": "Download your Liked Songs library (new items only)",
+            },
+            {
+                "value": "liked_no_cache",
+                "label": "Download your Liked Songs library (No cache)",
             },
             {
                 "value": "move_playlist_matches",
@@ -419,6 +511,8 @@ class Unify:
 
                 if self.option_type == "liked":
                     self.playlist_name = "Liked Songs"
+                elif self.option_type == "liked_no_cache":
+                    self.playlist_name = "Liked Songs (No Cache)"
 
                 print()
                 return
@@ -633,13 +727,33 @@ class Unify:
         return self.fetch_liked_tracks()
 
     def fetch_liked_tracks(self):
+        self.current_liked_tracks_latest_added_at = None
+        last_scan_timestamp = self.get_last_liked_tracks_scan_timestamp() if self.option_type == "liked" else None
+        self.did_partial_library_scan = bool(last_scan_timestamp)
+
         response = self.call_spotipy(
             'current_user_saved_tracks', limit=50, offset=0, market=self.config['region'])
-        tracks_fetched = response['items']
+        tracks_fetched = []
 
-        while response['next']:
+        while True:
+            should_stop = False
+
+            for item in response['items']:
+                added_at = item.get('added_at')
+
+                if not self.current_liked_tracks_latest_added_at and added_at:
+                    self.current_liked_tracks_latest_added_at = added_at
+
+                if last_scan_timestamp and added_at and added_at <= last_scan_timestamp:
+                    should_stop = True
+                    break
+
+                tracks_fetched.append(item)
+
+            if should_stop or not response['next']:
+                break
+
             response = self.call_spotipy('next', response)
-            tracks_fetched.extend(response['items'])
 
         return tracks_fetched
 
@@ -920,6 +1034,9 @@ class Unify:
     ######################################################
 
     def local_tracks_delete_unmatched(self):
+        if self.did_partial_library_scan:
+            return
+
         for local_track in self.local_tracks_raw:
             matched_spotify_track = next(
                 (spotify_track for spotify_track in self.spotify_tracks_raw if self.tracks_match(
@@ -1035,6 +1152,8 @@ class Unify:
     ######################################################
 
     def download_handler(self):
+        all_downloads_succeeded = True
+
         if self.spotify_tracks_to_download:
             with Live(self.progress_panel, refresh_per_second=10):
                 for spotify_track in self.spotify_tracks_to_download:
@@ -1051,6 +1170,7 @@ class Unify:
 
                     # RUN TASKS
                     download_succeeded = self.downloader()
+                    all_downloads_succeeded = all_downloads_succeeded and download_succeeded
 
                     if download_succeeded:
                         if self.set_file_mtime_from_added_at:
@@ -1087,6 +1207,8 @@ class Unify:
             with Live(self.progress_panel_alt, refresh_per_second=10):
                 self.playlist_completed.update(
                     self.playlist_completed_id, description=f"[bold green]{self.playlist_name} sync completed", visible=True)
+
+        return all_downloads_succeeded
 
     def downloader(self):
         spotify_track = self.currently_downloading_track
