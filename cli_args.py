@@ -205,10 +205,8 @@ def configure_option(app, args):
     if args.option_type:
         app.option_type = args.option_type
 
-        if app.option_type == "liked_full":
-            app.playlist_name = "Liked Songs (Full)"
-        elif app.option_type == "liked_partial":
-            app.playlist_name = "Liked Songs (New Items Only)"
+        if app.option_type in {"liked_full", "liked_partial"}:
+            app.playlist_name = "Liked Songs"
         return
 
     app.prompt_option_selection()

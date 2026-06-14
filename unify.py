@@ -138,7 +138,7 @@ class Unify:
         self.playlist_id = ''
         self.track_url = ''
         self.track_id = ''
-        self.playlist_name = 'Liked Songs (Full)'
+        self.playlist_name = 'Liked Songs'
         self.local_playlist_folder = ''
         self.source_folder = ''
 
@@ -513,10 +513,8 @@ class Unify:
                 chosen_option = options[selected_index]
                 self.option_type = chosen_option["value"]
 
-                if self.option_type == "liked_full":
-                    self.playlist_name = "Liked Songs (Full)"
-                elif self.option_type == "liked_partial":
-                    self.playlist_name = "Liked Songs (New Items Only)"
+                if self.option_type in {"liked_full", "liked_partial"}:
+                    self.playlist_name = "Liked Songs"
 
                 print()
                 return
