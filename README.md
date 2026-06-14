@@ -15,7 +15,7 @@ It supports:
 - Writes metadata such as title, album, artist, cover art, genres, and lyrics
 - Renames conflicting files safely
 - Removes duplicates from the local library
-- Updates the file modified date to match the track's Spotify added date
+- Can update the file modified date to match the track's Spotify added date
 - Lets you run fully interactively or provide CLI arguments for automation
 
 ## Important Notes
@@ -78,7 +78,9 @@ If you do not provide a config file, the app uses these built-in defaults:
 - `chunk_size`: `20000`
 - `retry_attempts`: `0`
 - `temp_download_folder`: `%USERPROFILE%\\Unify Downloads`
-- archive: disabled
+- `enable_archive`: `false`
+- `archive_folder`: unset
+- `set_file_mtime_from_added_at`: `false`
 
 If a config file is present, only the keys you explicitly set override these defaults. Missing keys continue using the built-in defaults.
 
@@ -112,17 +114,17 @@ unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --set-file
 ### CLI Options
 
 - `--option-type`: `track`, `playlist`, `liked`, `liked_no_cache`, or `move_playlist_matches`
-- `liked`: incremental Liked Songs sync; after the first full fetch for a destination folder, later runs only request newer liked tracks
-- `liked_no_cache`: full Liked Songs library fetch every run
+- `--option-type liked`: incremental Liked Songs sync; after the first full fetch for a destination folder, later runs only request newer liked tracks
+- `--option-type liked_no_cache`: full Liked Songs library fetch every run
 - `--track-url`: required for `track` mode unless you want to be prompted
 - `--playlist-url`: used for `playlist` and `move_playlist_matches`
 - `--destination-folder`: destination folder for downloads
 - `--source-folder`: source folder for `move_playlist_matches`
 - `--config-path`: optional path to a JSON config file
 - `--region`: Spotify market code used when reading track/playlist data
-- `--download-format`: `aac`, `fdk_aac`, `m4a`, `mp3`, `ogg`, `opus`, or `vorbis`
+- `--download-format`: `m4a`, `mp3`, `ogg`, or `opus`
 - `--download-quality`: `normal` or `high`
-- `--transcode-bitrate`: bitrate preference for transcoded output
+- `--transcode-bitrate`: accepted for config compatibility; current output bitrate follows `--download-quality`
 - `--chunk-size`: download chunk size in bytes
 - `--retry-attempts`: retries for failed HTTP requests
 - `--temp-download-folder`: optional temp working folder; defaults to `%USERPROFILE%\\Unify Downloads`
