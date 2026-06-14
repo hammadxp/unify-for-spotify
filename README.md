@@ -54,13 +54,16 @@ Example:
 
 ```json
 {
+  "option_type": "liked",
+  "destination_folder": "C:\\Music\\Spotify",
   "region": "US",
   "download_format": "mp3",
   "download_quality": "high",
   "transcode_bitrate": "auto",
   "chunk_size": 20000,
   "retry_attempts": 0,
-  "temp_download_folder": "C:\\Users\\{YourUserName}\\Unify Downloads"
+  "temp_download_folder": "C:\\Users\\{YourUserName}\\Unify Downloads",
+  "set_file_mtime_from_added_at": false
 }
 ```
 
@@ -78,6 +81,8 @@ If you do not provide a config file, the app uses these built-in defaults:
 - archive: disabled
 
 If a config file is present, only the keys you explicitly set override these defaults. Missing keys continue using the built-in defaults.
+
+Config files can also provide runtime choices that are normally passed as CLI arguments: `option_type`, `playlist_url`, `track_url`, `destination_folder`, `source_folder`, `enable_archive`, `archive_folder`, and `set_file_mtime_from_added_at`. Explicit CLI arguments always override matching config values.
 
 ### Running Interactively
 

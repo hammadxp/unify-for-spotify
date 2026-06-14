@@ -1,9 +1,12 @@
 {
-  "region": "PK",
+  "option_type": "liked",
+  "destination_folder": "C:\\Music\\Spotify",
+  "region": "US",
   "download_format": "mp3",
   "download_quality": "high",
   "transcode_bitrate": "auto",
   "chunk_size": 20000,
   "retry_attempts": 0,
-  "temp_download_folder": "C:\\Users\\{YourUserName}\\Unify Downloads"
+  "temp_download_folder": "C:\\Users\\{YourUserName}\\Unify Downloads",
+  "set_file_mtime_from_added_at": false
 }

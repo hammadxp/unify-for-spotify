@@ -129,6 +129,7 @@ class Unify:
     def init_state(self):
         self.runtime_base_folder = self.get_runtime_base_folder()
         self.config = self.get_default_config()
+        self.loaded_config = {}
         self.archive_enabled = False
 
         # Sync info
@@ -301,6 +302,7 @@ class Unify:
 
     def load_config(self, config_path=None):
         self.config = self.get_default_config()
+        self.loaded_config = {}
 
         if not config_path:
             default_config_path = self.get_runtime_file_path("config.json")
@@ -317,6 +319,8 @@ class Unify:
 
             if not isinstance(loaded_config, dict):
                 raise ValueError("Config file must contain a JSON object.")
+
+            self.loaded_config = loaded_config
 
             for key, value in loaded_config.items():
                 if key in self.config and value is not None:

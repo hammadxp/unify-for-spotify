@@ -1,12 +1,46 @@
 import argparse
 import os
 
+VALID_OPTION_TYPES = {"track", "playlist", "liked", "liked_no_cache", "move_playlist_matches"}
+
 
 def normalize_cli_path(path_value):
     if not path_value:
         return None
 
     return os.path.abspath(os.path.expanduser(path_value.strip().strip('"')))
+
+
+def get_config_value(app, *keys):
+    for key in keys:
+        if key in app.loaded_config and app.loaded_config[key] is not None:
+            return app.loaded_config[key]
+
+    return None
+
+
+def normalize_config_text(value):
+    if value is None:
+        return None
+
+    return str(value).strip()
+
+
+def normalize_config_bool(value, key):
+    if value is None:
+        return None
+
+    if isinstance(value, bool):
+        return value
+
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "off"}:
+            return False
+
+    raise ValueError(f"Config value '{key}' must be true or false.")
 
 
 def parse_args():
@@ -67,6 +101,7 @@ def parse_args():
     parser.add_argument(
         "--enable-archive",
         action="store_true",
+        default=None,
         help="Archive unmatched local tracks instead of sending them to the recycle bin",
     )
     parser.add_argument(
@@ -80,6 +115,7 @@ def parse_args():
     parser.add_argument(
         "--set-file-mtime-from-added-at",
         action="store_true",
+        default=None,
         help="Set each file's modification time from the track's Spotify added_at time (UTC, displayed in your local timezone). Off by default.",
     )
 
@@ -89,13 +125,51 @@ def parse_args():
     args.archive_folder = normalize_cli_path(args.archive_folder)
     args.temp_download_folder = normalize_cli_path(args.temp_download_folder)
 
-    if args.archive_folder and not args.enable_archive:
-        parser.error("--archive-folder requires --enable-archive.")
-
-    if args.enable_archive and not args.archive_folder:
-        parser.error("--enable-archive requires --archive-folder.")
-
     return args
+
+
+def apply_config_runtime_defaults(app, args):
+    if args.option_type is None:
+        option_type = normalize_config_text(get_config_value(app, "option_type", "option-type"))
+        if option_type:
+            if option_type not in VALID_OPTION_TYPES:
+                valid_options = ", ".join(sorted(VALID_OPTION_TYPES))
+                raise ValueError(f"Config value 'option_type' must be one of: {valid_options}.")
+            args.option_type = option_type
+
+    if args.playlist_url is None:
+        args.playlist_url = normalize_config_text(get_config_value(app, "playlist_url", "playlist-url"))
+
+    if args.track_url is None:
+        args.track_url = normalize_config_text(get_config_value(app, "track_url", "track-url"))
+
+    if args.destination_folder is None:
+        destination_folder = normalize_config_text(get_config_value(
+            app, "destination_folder", "destination-folder"))
+        if destination_folder:
+            args.destination_folder = normalize_cli_path(destination_folder)
+
+    if args.source_folder is None:
+        source_folder = normalize_config_text(get_config_value(app, "source_folder", "source-folder"))
+        if source_folder:
+            args.source_folder = normalize_cli_path(source_folder)
+
+    if args.enable_archive is None:
+        args.enable_archive = normalize_config_bool(
+            get_config_value(app, "enable_archive", "enable-archive"),
+            "enable_archive",
+        )
+
+    if args.archive_folder is None:
+        archive_folder = normalize_config_text(get_config_value(app, "archive_folder", "archive-folder"))
+        if archive_folder:
+            args.archive_folder = normalize_cli_path(archive_folder)
+
+    if args.set_file_mtime_from_added_at is None:
+        args.set_file_mtime_from_added_at = normalize_config_bool(
+            get_config_value(app, "set_file_mtime_from_added_at", "set-file-mtime-from-added-at"),
+            "set_file_mtime_from_added_at",
+        )
 
 
 def apply_config_overrides(app, args):
@@ -113,10 +187,18 @@ def apply_config_overrides(app, args):
         if value is not None:
             app.config[key] = value
 
-    app.set_file_mtime_from_added_at = args.set_file_mtime_from_added_at
+    app.set_file_mtime_from_added_at = bool(args.set_file_mtime_from_added_at)
 
-    app.archive_enabled = args.enable_archive
-    app.config["archive_folder"] = args.archive_folder if args.enable_archive else None
+    app.archive_enabled = bool(args.enable_archive)
+    app.config["archive_folder"] = args.archive_folder if app.archive_enabled else None
+
+
+def validate_runtime_options(args):
+    if args.archive_folder and not args.enable_archive:
+        raise ValueError("--archive-folder requires --enable-archive or config enable_archive=true.")
+
+    if args.enable_archive and not args.archive_folder:
+        raise ValueError("--enable-archive requires --archive-folder or config archive_folder.")
 
 
 def configure_option(app, args):
@@ -187,6 +269,8 @@ def configure_source_folder(app, args):
 
 
 def configure_runtime_options(app, args):
+    apply_config_runtime_defaults(app, args)
+    validate_runtime_options(args)
     apply_config_overrides(app, args)
     configure_option(app, args)
     configure_track(app, args)
