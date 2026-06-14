@@ -21,7 +21,7 @@ It supports:
 ## Important Notes
 
 - Uploaded/local-only Spotify tracks are skipped because they cannot be fetched through the current download flow
-- Extra files that do not match the Spotify source are safely removed during full-library syncs such as playlists and `liked_no_cache`
+- Extra files that do not match the Spotify source are safely removed during full-library syncs such as playlists and `liked_full`
 - Archive behavior is disabled by default
 - Temporary downloads are stored in `~/Unify Downloads` by default unless you override that path
 - This project is currently Windows-focused
@@ -54,7 +54,7 @@ Example:
 
 ```json
 {
-  "option_type": "liked",
+  "option_type": "liked_full",
   "destination_folder": "C:\\Music\\Spotify",
   "region": "US",
   "download_format": "mp3",
@@ -104,18 +104,18 @@ Examples:
 unify.exe --option-type track --track-url "https://open.spotify.com/track/..." --destination-folder "C:\Music\Singles"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Unify Archive"
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify"
-unify.exe --option-type liked_no_cache --destination-folder "C:\Music\Spotify"
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --temp-download-folder "C:\Temp\Unify"
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
-unify.exe --option-type liked --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
+unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify"
+unify.exe --option-type liked_partial --destination-folder "C:\Music\Spotify"
+unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify" --temp-download-folder "C:\Temp\Unify"
+unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify" --config-path "C:\Configs\unify.json"
+unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
 ```
 
 ### CLI Options
 
-- `--option-type`: `track`, `playlist`, `liked`, `liked_no_cache`, or `move_playlist_matches`
-- `--option-type liked`: incremental Liked Songs sync; after the first full fetch for a destination folder, later runs only request newer liked tracks
-- `--option-type liked_no_cache`: full Liked Songs library fetch every run
+- `--option-type`: `track`, `playlist`, `liked_full`, `liked_partial`, or `move_playlist_matches`
+- `--option-type liked_full`: full Liked Songs library fetch every run; this also refreshes the saved timestamp for later partial runs
+- `--option-type liked_partial`: new-items-only Liked Songs sync using the saved timestamp for the destination folder
 - `--track-url`: required for `track` mode unless you want to be prompted
 - `--playlist-url`: used for `playlist` and `move_playlist_matches`
 - `--destination-folder`: destination folder for downloads
@@ -173,10 +173,10 @@ python main.py
 ```powershell
 python main.py
 python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --config-path ".\example_files\config.json"
-python main.py --option-type liked --destination-folder "C:\Music\Spotify"
-python main.py --option-type liked_no_cache --destination-folder "C:\Music\Spotify"
-python main.py --option-type liked --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"
-python main.py --option-type liked --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
+python main.py --option-type liked_full --destination-folder "C:\Music\Spotify"
+python main.py --option-type liked_partial --destination-folder "C:\Music\Spotify"
+python main.py --option-type liked_full --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"
+python main.py --option-type liked_full --destination-folder "C:\Music\Spotify" --set-file-mtime-from-added-at
 ```
 
 ### Packaging With PyInstaller

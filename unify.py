@@ -138,7 +138,7 @@ class Unify:
         self.playlist_id = ''
         self.track_url = ''
         self.track_id = ''
-        self.playlist_name = 'Liked Songs'
+        self.playlist_name = 'Liked Songs (Full)'
         self.local_playlist_folder = ''
         self.source_folder = ''
 
@@ -398,7 +398,7 @@ class Unify:
         return raw_timestamp
 
     def remember_liked_tracks_scan_timestamp(self):
-        if self.option_type != "liked":
+        if self.option_type not in {"liked_full", "liked_partial"}:
             return
 
         if not self.current_liked_tracks_cache_key or not self.current_liked_tracks_latest_added_at:
@@ -410,7 +410,7 @@ class Unify:
     def prepare_runtime_state(self):
         self.load_state()
 
-        if self.option_type == "liked":
+        if self.option_type in {"liked_full", "liked_partial"}:
             self.current_liked_tracks_cache_key = self.get_liked_tracks_cache_key()
         else:
             self.current_liked_tracks_cache_key = None
@@ -483,12 +483,12 @@ class Unify:
                 "label": "Download an individual playlist",
             },
             {
-                "value": "liked",
-                "label": "Download your Liked Songs library (new items only)",
+                "value": "liked_full",
+                "label": "Download your Liked Songs library (Full)",
             },
             {
-                "value": "liked_no_cache",
-                "label": "Download your Liked Songs library (No cache)",
+                "value": "liked_partial",
+                "label": "Download your Liked Songs library (New Items Only)",
             },
             {
                 "value": "move_playlist_matches",
@@ -513,10 +513,10 @@ class Unify:
                 chosen_option = options[selected_index]
                 self.option_type = chosen_option["value"]
 
-                if self.option_type == "liked":
-                    self.playlist_name = "Liked Songs"
-                elif self.option_type == "liked_no_cache":
-                    self.playlist_name = "Liked Songs (No Cache)"
+                if self.option_type == "liked_full":
+                    self.playlist_name = "Liked Songs (Full)"
+                elif self.option_type == "liked_partial":
+                    self.playlist_name = "Liked Songs (New Items Only)"
 
                 print()
                 return
@@ -732,8 +732,8 @@ class Unify:
 
     def fetch_liked_tracks(self):
         self.current_liked_tracks_latest_added_at = None
-        last_scan_timestamp = self.get_last_liked_tracks_scan_timestamp() if self.option_type == "liked" else None
-        self.did_partial_library_scan = bool(last_scan_timestamp)
+        last_scan_timestamp = self.get_last_liked_tracks_scan_timestamp() if self.option_type == "liked_partial" else None
+        self.did_partial_library_scan = self.option_type == "liked_partial"
 
         response = self.call_spotipy(
             'current_user_saved_tracks', limit=50, offset=0, market=self.config['region'])
