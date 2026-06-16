@@ -308,10 +308,7 @@ def configure_playlist(app, args):
             }
         ]
 
-    app.get_playlist_name()
-    app.playlist_jobs[0]["name"] = app.playlist_name
-
-    for playlist_job in app.playlist_jobs[1:]:
+    for playlist_job in app.playlist_jobs:
         app.playlist_url = playlist_job["url"]
         app.playlist_id = playlist_job["id"]
         app.get_playlist_name()

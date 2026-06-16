@@ -95,7 +95,15 @@ If one or more config files are present, only the keys you explicitly set overri
 
 Config files can also provide runtime choices that are normally passed as CLI arguments: `option_type`, `playlist_url`, `track_url`, `destination_folder`, `source_folder`, `enable_archive`, `archive_folder`, and `set_file_mtime_from_added_at`. Explicit CLI arguments always override matching config values.
 
-For playlist mode, `playlist_url` may be a string, a whitespace-separated string, or an array of playlist URLs.
+For playlist mode, `playlist_url` may be a string or an array of playlist URLs. Prefer the array form for multiple playlists:
+
+```json
+{
+  "option_type": "playlist",
+  "playlist_url": ["https://open.spotify.com/playlist/...", "https://open.spotify.com/playlist/..."],
+  "destination_folder": "C:\\Music\\Playlists"
+}
+```
 
 ### Running Interactively
 
