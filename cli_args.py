@@ -13,8 +13,17 @@ def normalize_cli_path(path_value):
 
 def get_config_value(app, *keys):
     for key in keys:
-        if key in app.loaded_config and app.loaded_config[key] is not None:
-            return app.loaded_config[key]
+        candidate_keys = {
+            key,
+            key.replace("_", "-"),
+            key.replace("-", "_"),
+            f"--{key}",
+            f"--{key.replace('_', '-')}",
+            f"--{key.replace('-', '_')}",
+        }
+        for candidate_key in candidate_keys:
+            if candidate_key in app.loaded_config and app.loaded_config[candidate_key] is not None:
+                return app.loaded_config[candidate_key]
 
     return None
 
@@ -41,6 +50,24 @@ def normalize_config_bool(value, key):
             return False
 
     raise ValueError(f"Config value '{key}' must be true or false.")
+
+
+def normalize_config_list(value):
+    if value is None:
+        return None
+
+    if isinstance(value, list):
+        return [
+            normalized_item
+            for item in value
+            if (normalized_item := normalize_config_text(item))
+        ]
+
+    normalized_value = normalize_config_text(value)
+    if not normalized_value:
+        return None
+
+    return normalized_value.split()
 
 
 def parse_args():
@@ -140,16 +167,9 @@ def apply_config_runtime_defaults(app, args):
 
     if args.playlist_url is None:
         playlist_url = get_config_value(app, "playlist_url", "playlist-url")
-        if isinstance(playlist_url, list):
-            args.playlist_url = [
-                normalized_url
-                for url in playlist_url
-                if (normalized_url := normalize_config_text(url))
-            ]
-        else:
-            normalized_url = normalize_config_text(playlist_url)
-            if normalized_url:
-                args.playlist_url = [normalized_url]
+        normalized_playlist_urls = normalize_config_list(playlist_url)
+        if normalized_playlist_urls:
+            args.playlist_url = normalized_playlist_urls
 
     if args.track_url is None:
         args.track_url = normalize_config_text(get_config_value(app, "track_url", "track-url"))

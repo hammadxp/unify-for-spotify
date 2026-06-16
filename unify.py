@@ -61,6 +61,10 @@ def normalize_download_format(value):
     return key if key in VALID_DOWNLOAD_FORMATS else None
 
 
+def normalize_config_key(key):
+    return str(key).strip().lstrip("-").replace("-", "_")
+
+
 def read_interactive_menu_key():
     """Return 'up', 'down', 'enter', or None for an unsupported key."""
     if platform.system() == "Windows":
@@ -328,9 +332,14 @@ class Unify:
         if not isinstance(loaded_config, dict):
             raise ValueError("Config file must contain a JSON object.")
 
-        self.loaded_config.update(loaded_config)
+        normalized_config = {
+            normalize_config_key(key): value
+            for key, value in loaded_config.items()
+        }
 
-        for key, value in loaded_config.items():
+        self.loaded_config.update(normalized_config)
+
+        for key, value in normalized_config.items():
             if key in self.config and value is not None:
                 self.config[key] = value
 

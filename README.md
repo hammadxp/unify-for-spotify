@@ -91,11 +91,11 @@ If you do not provide a config file, the app uses these built-in defaults:
 - `archive_folder`: unset
 - `set_file_mtime_from_added_at`: `false`
 
-If one or more config files are present, only the keys you explicitly set override earlier values. Missing keys continue using the built-in defaults or values from earlier config layers.
+If one or more config files are present, only the keys you explicitly set override earlier values. Missing keys continue using the built-in defaults or values from earlier config layers. Config keys may be written as JSON-style names such as `destination_folder`, CLI-style names such as `destination-folder`, or full CLI flags such as `--destination-folder`.
 
 Config files can also provide runtime choices that are normally passed as CLI arguments: `option_type`, `playlist_url`, `track_url`, `destination_folder`, `source_folder`, `enable_archive`, `archive_folder`, and `set_file_mtime_from_added_at`. Explicit CLI arguments always override matching config values.
 
-For playlist mode, `playlist_url` may be a string or an array of playlist URLs.
+For playlist mode, `playlist_url` may be a string, a whitespace-separated string, or an array of playlist URLs.
 
 ### Running Interactively
 
