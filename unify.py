@@ -136,6 +136,7 @@ class Unify:
         self.option_type = ''
         self.playlist_url = ''
         self.playlist_id = ''
+        self.playlist_jobs = []
         self.track_url = ''
         self.track_id = ''
         self.playlist_name = 'Liked Songs'
@@ -190,17 +191,37 @@ class Unify:
         else:
             print(f"\n{message}\n")
 
+    def load_spotify_env(self):
+        env_path = self.get_runtime_file_path(".env")
+
+        if not os.path.isfile(env_path):
+            env_txt_path = f"{env_path}.txt"
+            message = f"Spotify .env file not found. Expected: {env_path}"
+            if os.path.isfile(env_txt_path):
+                message += " (Found .env.txt instead; rename it to .env.)"
+            raise FileNotFoundError(message)
+
+        load_dotenv(env_path, override=True)
+
+        client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
+        client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip()
+        redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback").strip()
+
+        missing_keys = []
+        if not client_id:
+            missing_keys.append("SPOTIFY_CLIENT_ID")
+        if not client_secret:
+            missing_keys.append("SPOTIFY_CLIENT_SECRET")
+
+        if missing_keys:
+            raise ValueError(
+                f"{' and '.join(missing_keys)} must be set in .env for Spotify Web API access. Loaded .env from: {env_path}")
+
+        return client_id, client_secret, redirect_uri
+
     def create_spotipy_session(self, verbose=True):
         try:
-            load_dotenv(self.get_runtime_file_path(".env"))
-
-            client_id = os.getenv("SPOTIFY_CLIENT_ID", "").strip()
-            client_secret = os.getenv("SPOTIFY_CLIENT_SECRET", "").strip()
-            redirect_uri = os.getenv("SPOTIFY_REDIRECT_URI", "http://127.0.0.1:8888/callback").strip()
-
-            if not client_id or not client_secret:
-                raise ValueError(
-                    "SPOTIFY_CLIENT_ID and SPOTIFY_CLIENT_SECRET must be set in .env for Spotify Web API access")
+            client_id, client_secret, redirect_uri = self.load_spotify_env()
 
             scope = "user-library-read playlist-read-private playlist-read-collaborative"
             self.spotipy_auth_manager = SpotifyOAuth(
@@ -300,55 +321,87 @@ class Unify:
                 f"ERROR: Could not log in to librespot with OAuth. ({e})")
             raise
 
+    def load_config_file(self, config_path):
+        with open(config_path, 'r', encoding='utf-8') as config_file:
+            loaded_config = json.load(config_file)
+
+        if not isinstance(loaded_config, dict):
+            raise ValueError("Config file must contain a JSON object.")
+
+        self.loaded_config.update(loaded_config)
+
+        for key, value in loaded_config.items():
+            if key in self.config and value is not None:
+                self.config[key] = value
+
+    def normalize_loaded_config(self):
+        normalized_format = normalize_download_format(
+            self.config.get("download_format"))
+        if normalized_format:
+            if str(self.config.get("download_format", "")).lower().strip() not in VALID_DOWNLOAD_FORMATS:
+                print(
+                    f"Note: config download_format was mapped to '{normalized_format}' (supported: {', '.join(sorted(VALID_DOWNLOAD_FORMATS))}).")
+            self.config["download_format"] = normalized_format
+        else:
+            print(
+                f"Warning: invalid download_format in config; using 'mp3'.")
+            self.config["download_format"] = "mp3"
+
+        for path_key in ("temp_download_folder", "archive_folder"):
+            if self.config.get(path_key):
+                self.config[path_key] = os.path.abspath(
+                    os.path.expanduser(self.config[path_key]))
+
+        self.config["archive_folder"] = None
+
     def load_config(self, config_path=None):
         self.config = self.get_default_config()
         self.loaded_config = {}
+        config_paths = []
 
-        if not config_path:
-            default_config_path = self.get_runtime_file_path("config.json")
-            if os.path.isfile(default_config_path):
-                config_path = default_config_path
+        default_config_path = self.get_runtime_file_path("config.json")
+        if os.path.isfile(default_config_path):
+            config_paths.append(default_config_path)
 
-        if not config_path:
+        if config_path and os.path.abspath(config_path) not in {os.path.abspath(path) for path in config_paths}:
+            config_paths.append(config_path)
+
+        if not config_paths:
             print("Using built-in default configuration.")
             return
 
         try:
-            with open(config_path, 'r', encoding='utf-8') as config_file:
-                loaded_config = json.load(config_file)
+            for path in config_paths:
+                self.load_config_file(path)
 
-            if not isinstance(loaded_config, dict):
-                raise ValueError("Config file must contain a JSON object.")
-
-            self.loaded_config = loaded_config
-
-            for key, value in loaded_config.items():
-                if key in self.config and value is not None:
-                    self.config[key] = value
-
-            normalized_format = normalize_download_format(
-                self.config.get("download_format"))
-            if normalized_format:
-                if str(self.config.get("download_format", "")).lower().strip() not in VALID_DOWNLOAD_FORMATS:
-                    print(
-                        f"Note: config download_format was mapped to '{normalized_format}' (supported: {', '.join(sorted(VALID_DOWNLOAD_FORMATS))}).")
-                self.config["download_format"] = normalized_format
-            else:
-                print(
-                    f"Warning: invalid download_format in config; using 'mp3'.")
-                self.config["download_format"] = "mp3"
-
-            for path_key in ("temp_download_folder", "archive_folder"):
-                if self.config.get(path_key):
-                    self.config[path_key] = os.path.abspath(
-                        os.path.expanduser(self.config[path_key]))
-
-            self.config["archive_folder"] = None
-            print(f"Config loaded from: {config_path}")
+            self.normalize_loaded_config()
+            print(f"Config loaded from: {', '.join(config_paths)}")
 
         except FileNotFoundError as exc:
             raise FileNotFoundError(
-                f"Config file not found: {config_path}") from exc
+                f"Config file not found: {exc.filename}") from exc
+
+    def reset_sync_collections(self):
+        self.spotify_tracks_raw = []
+        self.spotify_tracks_already_downloaded = []
+        self.spotify_tracks_incomplete = []
+        self.spotify_tracks_duplicate = []
+        self.spotify_tracks_uploaded = []
+        self.spotify_tracks_unavailable = []
+        self.spotify_tracks_deleted = []
+        self.spotify_tracks_to_download = []
+
+        self.local_tracks_raw = []
+        self.local_tracks_already_downloaded = []
+        self.local_tracks_duplicate = []
+        self.local_tracks_uploaded = []
+        self.local_tracks_unmatched = []
+
+        self.spotify_track_ids = set()
+        self.local_track_ids = set()
+
+        self.completed_index = 0
+        self.progress_bar_text = ''
 
     def get_state_file_path(self):
         return self.get_runtime_file_path("unify-state.json")
@@ -1634,7 +1687,7 @@ class Unify:
             return
         try:
             ctypes.windll.kernel32.SetConsoleTitleW(
-                f"Unify Script by HammadXP | {text}")
+                f"Unify by HammadXP | {text}")
         except Exception:
             pass
 

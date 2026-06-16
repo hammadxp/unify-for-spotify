@@ -50,6 +50,15 @@ SPOTIFY_REDIRECT_URI="http://127.0.0.1:8888/callback"
 
 If `config.json` exists next to `unify.exe`, it is loaded automatically. You can also keep a config file anywhere on your PC and pass it with `--config-path`.
 
+Configuration is layered in this order:
+
+1. Built-in defaults
+2. `config.json` beside the `.exe`, when present
+3. The file passed with `--config-path`, when present
+4. Explicit CLI arguments
+
+Later layers override earlier layers, so a runtime config passed with `--config-path` overrides both built-in defaults and the adjacent `config.json`.
+
 Example:
 
 ```json
@@ -82,9 +91,11 @@ If you do not provide a config file, the app uses these built-in defaults:
 - `archive_folder`: unset
 - `set_file_mtime_from_added_at`: `false`
 
-If a config file is present, only the keys you explicitly set override these defaults. Missing keys continue using the built-in defaults.
+If one or more config files are present, only the keys you explicitly set override earlier values. Missing keys continue using the built-in defaults or values from earlier config layers.
 
 Config files can also provide runtime choices that are normally passed as CLI arguments: `option_type`, `playlist_url`, `track_url`, `destination_folder`, `source_folder`, `enable_archive`, `archive_folder`, and `set_file_mtime_from_added_at`. Explicit CLI arguments always override matching config values.
+
+For playlist mode, `playlist_url` may be a string or an array of playlist URLs.
 
 ### Running Interactively
 
@@ -103,6 +114,7 @@ Examples:
 ```powershell
 unify.exe --option-type track --track-url "https://open.spotify.com/track/..." --destination-folder "C:\Music\Singles"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
+unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Playlists"
 unify.exe --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Unify Archive"
 unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify"
 unify.exe --option-type liked_partial --destination-folder "C:\Music\Spotify"
@@ -117,8 +129,8 @@ unify.exe --option-type liked_full --destination-folder "C:\Music\Spotify" --set
 - `--option-type liked_full`: full Liked Songs library fetch every run; this also refreshes the saved timestamp for later partial runs
 - `--option-type liked_partial`: new-items-only Liked Songs sync using the saved timestamp for the destination folder
 - `--track-url`: required for `track` mode unless you want to be prompted
-- `--playlist-url`: used for `playlist` and `move_playlist_matches`
-- `--destination-folder`: destination folder for downloads
+- `--playlist-url`: used for `playlist` and `move_playlist_matches`; `playlist` mode accepts multiple URLs in one run
+- `--destination-folder`: destination folder for downloads; when multiple playlist URLs are supplied, each playlist is synced into its own playlist-named folder inside this folder
 - `--source-folder`: source folder for `move_playlist_matches`
 - `--config-path`: optional path to a JSON config file
 - `--region`: Spotify market code used when reading track/playlist data
@@ -173,6 +185,7 @@ python main.py
 ```powershell
 python main.py
 python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify" --config-path ".\example_files\config.json"
+python main.py --option-type playlist --playlist-url "https://open.spotify.com/playlist/..." "https://open.spotify.com/playlist/..." --destination-folder "C:\Music\Spotify"
 python main.py --option-type liked_full --destination-folder "C:\Music\Spotify"
 python main.py --option-type liked_partial --destination-folder "C:\Music\Spotify"
 python main.py --option-type liked_full --destination-folder "C:\Music\Spotify" --enable-archive --archive-folder "C:\Music\Archive"

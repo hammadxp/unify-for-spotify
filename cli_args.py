@@ -52,6 +52,7 @@ def parse_args():
     )
     parser.add_argument(
         "--playlist-url",
+        nargs="+",
         help="Spotify playlist URL when the selected option requires a playlist",
     )
     parser.add_argument(
@@ -138,7 +139,17 @@ def apply_config_runtime_defaults(app, args):
             args.option_type = option_type
 
     if args.playlist_url is None:
-        args.playlist_url = normalize_config_text(get_config_value(app, "playlist_url", "playlist-url"))
+        playlist_url = get_config_value(app, "playlist_url", "playlist-url")
+        if isinstance(playlist_url, list):
+            args.playlist_url = [
+                normalized_url
+                for url in playlist_url
+                if (normalized_url := normalize_config_text(url))
+            ]
+        else:
+            normalized_url = normalize_config_text(playlist_url)
+            if normalized_url:
+                args.playlist_url = [normalized_url]
 
     if args.track_url is None:
         args.track_url = normalize_config_text(get_config_value(app, "track_url", "track-url"))
@@ -233,15 +244,63 @@ def configure_playlist(app, args):
         return
 
     if args.playlist_url:
-        app.playlist_url = args.playlist_url.strip()
+        playlist_urls = args.playlist_url
+        if isinstance(playlist_urls, str):
+            playlist_urls = [playlist_urls]
+
+        playlist_urls = [url.strip() for url in playlist_urls if url.strip()]
+        if app.option_type == "move_playlist_matches" and len(playlist_urls) > 1:
+            raise ValueError("--option-type move_playlist_matches accepts one --playlist-url.")
+
+        app.playlist_url = playlist_urls[0]
         app.get_playlist_id()
 
         if not app.playlist_id:
             raise ValueError("Invalid --playlist-url provided.")
+
+        app.playlist_jobs = [
+            {
+                "url": app.playlist_url,
+                "id": app.playlist_id,
+                "name": None,
+            }
+        ]
+
+        for playlist_url in playlist_urls[1:]:
+            app.playlist_url = playlist_url
+            app.get_playlist_id()
+
+            if not app.playlist_id:
+                raise ValueError(f"Invalid --playlist-url provided: {playlist_url}")
+
+            app.playlist_jobs.append({
+                "url": playlist_url,
+                "id": app.playlist_id,
+                "name": None,
+            })
     else:
         app.prompt_playlist_url()
+        app.playlist_jobs = [
+            {
+                "url": app.playlist_url,
+                "id": app.playlist_id,
+                "name": None,
+            }
+        ]
 
     app.get_playlist_name()
+    app.playlist_jobs[0]["name"] = app.playlist_name
+
+    for playlist_job in app.playlist_jobs[1:]:
+        app.playlist_url = playlist_job["url"]
+        app.playlist_id = playlist_job["id"]
+        app.get_playlist_name()
+        playlist_job["name"] = app.playlist_name
+
+    first_playlist_job = app.playlist_jobs[0]
+    app.playlist_url = first_playlist_job["url"]
+    app.playlist_id = first_playlist_job["id"]
+    app.playlist_name = first_playlist_job["name"]
 
 
 def configure_destination_folder(app, args):
